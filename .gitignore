@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+backups/
+
+# Private certificates and configuration backups
+*.pem
+*.backup
+*.save
+
+# Backups and build cache
+*-backup
+*.backup
+*.save
+*.tsbuildinfo

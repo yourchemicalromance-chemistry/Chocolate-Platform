@@ -1,0 +1,12 @@
+{
+  "brand": {
+  "name": "CHOCOLATE",
+  "tagline": "Dil Se Judne Ka App"
+},
+  "features": {
+    "friendship": "Friendship",
+    "love": "Love",
+    "marriage": "Marriage",
+    "partnership": "Partnership"
+  }
+}

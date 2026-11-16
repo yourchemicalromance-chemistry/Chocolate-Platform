@@ -1,0 +1,1 @@
+export { ChemistryLogo } from './ChemistryLogo';

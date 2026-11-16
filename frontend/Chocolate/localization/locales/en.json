@@ -1,0 +1,12 @@
+{
+  "brand": {
+  "name": "CHOCOLATE",
+  "tagline": "Meet. Flirt. Connect.\nLet it Flow... ♡"
+},
+  "features": {
+    "friendship": "Friendship",
+    "love": "Love",
+    "marriage": "Marriage",
+    "partnership": "Partnership"
+  }
+}
