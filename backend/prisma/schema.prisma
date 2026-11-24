@@ -11,3 +11,442 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model User {
+  id                  String        @id @default(uuid()) @db.Uuid
+  fullName            String
+  email               String        @unique
+  mobileNumber        String        @unique
+  dateOfBirth         DateTime      @db.Date
+  passwordHash        String?
+  tokenVersion        Int           @default(0)
+  emailVerified       Boolean       @default(false)
+  mobileVerified      Boolean       @default(false)
+  googleSubject       String?       @unique
+  is18PlusDeclared    Boolean
+  ageDeclarationAt    DateTime
+  accountStatus       AccountStatus @default(ACTIVE)
+  deletionRequestedAt DateTime?
+  deletionScheduledAt DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  mediaAssets             MediaAsset[]
+  verificationSessions    VerificationSession[]
+  humanVerifications      HumanVerification[]        @relation("VerificationOwner")
+  reviewedVerifications   HumanVerification[]        @relation("VerificationReviewer")
+  storageReservations     MediaStorageReservation[]
+  deletionJobs            MediaDeletionJob[]
+  datingIntentSelections  DatingIntentSelection[]
+  discoveryModeSelections DiscoveryModeSelection[]
+  profile                 Profile?
+  discoveryLocation       ProfileGeoLocation?
+  privacySettings         ProfilePrivacySetting?
+  contactHashes           ProfileContactHash[]
+  discoveryPreference     DiscoverySearchPreference?
+  reactionsSent           ProfileReaction[]          @relation("ReactionActor")
+  reactionsReceived       ProfileReaction[]          @relation("ReactionTarget")
+  savedProfiles           SavedProfile[]             @relation("SavedOwner")
+  savedBy                 SavedProfile[]             @relation("SavedTarget")
+  otpChallenges           OtpChallenge[]
+  passwordResetTokens     PasswordResetToken[]
+}
+
+model Profile {
+  userId             String                     @id @db.Uuid
+  displayName        String?                    @db.VarChar(30)
+  genderIdentity     String?
+  bio                String?                    @db.VarChar(300)
+  selectedPrompt     String?
+  completedAt        DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  owner              User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interestedIn       ProfileMeetingPreference[]
+  languages          ProfileLanguage[]
+  interests          ProfileInterest[]
+  lifestyles         ProfileLifestyle[]
+  values             ProfileValue[]
+  conversationStyles ProfileConversationStyle[]
+  photos             ProfilePhoto[]
+}
+
+model ProfileMeetingPreference {
+  userId  String  @db.Uuid
+  value   String
+  profile Profile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, value])
+  @@index([userId])
+}
+
+model ProfileLanguage {
+  userId  String  @db.Uuid
+  value   String
+  profile Profile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, value])
+  @@index([userId])
+}
+
+model ProfileInterest {
+  userId  String  @db.Uuid
+  value   String
+  profile Profile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, value])
+  @@index([userId])
+}
+
+model ProfileLifestyle {
+  userId  String  @db.Uuid
+  value   String
+  profile Profile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, value])
+  @@index([userId])
+}
+
+model ProfileValue {
+  userId  String  @db.Uuid
+  value   String
+  profile Profile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, value])
+  @@index([userId])
+}
+
+model ProfileConversationStyle {
+  userId  String  @db.Uuid
+  value   String
+  profile Profile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, value])
+  @@index([userId])
+}
+
+model ProfilePhoto {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @db.Uuid
+  assetId   String     @unique @db.Uuid
+  position  Int
+  isMain    Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  profile   Profile    @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  asset     MediaAsset @relation(fields: [assetId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([userId, position])
+  @@unique([assetId, userId])
+  @@index([userId, isMain])
+}
+
+model DatingIntentSelection {
+  userId    String   @db.Uuid
+  intent    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, intent])
+  @@index([userId])
+}
+
+model DiscoveryModeSelection {
+  userId    String   @db.Uuid
+  mode      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, mode])
+  @@index([userId])
+}
+
+enum ProfileReactionType {
+  LIKE
+  SUPER_LIKE
+  PASS
+  VIEW
+}
+
+model ProfileGeoLocation {
+  userId    String                                 @id @db.Uuid
+  location  Unsupported("geography(Point, 4326)")?
+  areaLabel String?                                @db.VarChar(120)
+  radiusKm  Int                                    @default(25)
+  updatedAt DateTime                               @updatedAt
+  owner     User                                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProfilePrivacySetting {
+  userId                   String                                 @id @db.Uuid
+  contactLockEnabled       Boolean                                @default(false)
+  neighbourhoodLockEnabled Boolean                                @default(false)
+  areaExclusionEnabled     Boolean                                @default(false)
+  undiscoverableEnabled    Boolean                                @default(false)
+  excludedArea             String?                                @db.VarChar(120)
+  excludedLocation         Unsupported("geography(Point, 4326)")?
+  updatedAt                DateTime                               @updatedAt
+  owner                    User                                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProfileContactHash {
+  userId    String   @db.Uuid
+  digest    String   @db.Char(64)
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, digest])
+  @@index([digest])
+}
+
+model DiscoverySearchPreference {
+  userId    String                                 @id @db.Uuid
+  location  Unsupported("geography(Point, 4326)")?
+  areaLabel String?                                @db.VarChar(120)
+  radiusKm  Int                                    @default(50)
+  updatedAt DateTime                               @updatedAt
+  owner     User                                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProfileReaction {
+  id        String              @id @default(uuid()) @db.Uuid
+  actorId   String              @db.Uuid
+  targetId  String              @db.Uuid
+  action    ProfileReactionType
+  createdAt DateTime            @default(now())
+  actor     User                @relation("ReactionActor", fields: [actorId], references: [id], onDelete: Cascade)
+  target    User                @relation("ReactionTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([actorId, targetId, action])
+  @@index([targetId, action, createdAt])
+}
+
+model SavedProfile {
+  ownerId   String   @db.Uuid
+  targetId  String   @db.Uuid
+  createdAt DateTime @default(now())
+  owner     User     @relation("SavedOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  target    User     @relation("SavedTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@id([ownerId, targetId])
+  @@index([targetId])
+}
+
+enum OtpChannel {
+  EMAIL
+  MOBILE
+}
+
+enum OtpPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum OtpChallengeStatus {
+  PENDING
+  CONSUMED
+  INVALIDATED
+}
+
+model OtpChallenge {
+  id         String             @id @default(uuid()) @db.Uuid
+  userId     String             @db.Uuid
+  channel    OtpChannel
+  purpose    OtpPurpose         @default(EMAIL_VERIFICATION)
+  otpHash    String
+  status     OtpChallengeStatus @default(PENDING)
+  attempts   Int                @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime           @default(now())
+  owner      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel, createdAt])
+  @@index([status, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  owner     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+enum AccountStatus {
+  ACTIVE
+  PENDING_DELETION
+}
+
+enum MediaType {
+  PROFILE_PHOTO
+  AGE_INTERVIEW_VIDEO
+}
+
+enum MediaProcessingStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+  DELETING
+}
+
+enum VerificationSessionStatus {
+  OPEN
+  CONSUMED
+  EXPIRED
+}
+
+enum HumanVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  MANUAL_REVIEW
+}
+
+enum MediaReservationStatus {
+  ACTIVE
+  RECEIVING
+  COMMITTED
+  RELEASED
+}
+
+enum MediaDeletionStatus {
+  PENDING
+  PROCESSING
+  RETRY
+  COMPLETED
+}
+
+model MediaAsset {
+  id                     String                @id @default(uuid()) @db.Uuid
+  userId                 String                @db.Uuid
+  type                   MediaType
+  processingStatus       MediaProcessingStatus @default(UPLOADING)
+  processingSlotAcquired Boolean               @default(false)
+  reservationId          String?               @unique @db.Uuid
+  thumbnailStorageKey    String?
+  storageKey             String                @unique
+  originalSizeBytes      BigInt
+  storedSizeBytes        BigInt?
+  mimeType               String
+  format                 String?
+  width                  Int?
+  height                 Int?
+  durationSeconds        Float?
+  uploadedAt             DateTime              @default(now())
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+
+  owner               User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  reservation         MediaStorageReservation? @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  verification        HumanVerification?
+  profilePhoto        ProfilePhoto?
+  verificationSession VerificationSession?
+
+  @@unique([id, type, processingStatus])
+  @@unique([id, userId, type])
+  @@unique([id, userId])
+  @@index([userId, type, processingStatus])
+}
+
+model VerificationSession {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  userId                String                    @db.Uuid
+  challengeTokenHash    String                    @unique
+  challengeInstructions Json
+  status                VerificationSessionStatus @default(OPEN)
+  issuedAt              DateTime                  @default(now())
+  expiresAt             DateTime
+  consumedAt            DateTime?
+  mediaAssetId          String?                   @unique @db.Uuid
+  createdAt             DateTime                  @default(now())
+
+  owner        User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  mediaAsset   MediaAsset?        @relation(fields: [mediaAssetId, userId], references: [id, userId], onDelete: Restrict)
+  verification HumanVerification?
+
+  @@unique([id, userId])
+  @@unique([mediaAssetId, userId])
+  @@index([userId, status, expiresAt])
+}
+
+model HumanVerification {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  userId                String                  @db.Uuid
+  mediaAssetId          String?                 @unique @db.Uuid
+  mediaAssetType        MediaType?
+  mediaProcessingStatus MediaProcessingStatus?
+  sessionId             String                  @unique @db.Uuid
+  status                HumanVerificationStatus @default(PENDING)
+  provider              String                  @default("builtin-exact-replay-check")
+  contentSha256         String
+  checks                Json
+  reviewerUserId        String?                 @db.Uuid
+  reviewedAt            DateTime?
+  decisionReason        String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  owner      User                @relation("VerificationOwner", fields: [userId], references: [id], onDelete: Restrict)
+  mediaAsset MediaAsset?         @relation(fields: [mediaAssetId, userId, mediaAssetType], references: [id, userId, type], onDelete: Restrict)
+  session    VerificationSession @relation(fields: [sessionId, userId], references: [id, userId], onDelete: Restrict)
+  reviewer   User?               @relation("VerificationReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+
+  @@unique([mediaAssetId, userId, mediaAssetType])
+  @@unique([sessionId, userId])
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@index([contentSha256])
+}
+
+model MediaStorageQuota {
+  id                          Int    @id @default(1)
+  maxBytes                    BigInt
+  usedBytes                   BigInt @default(0)
+  reservedBytes               BigInt @default(0)
+  activeProcessingJobs        Int    @default(0)
+  maxConcurrentProcessingJobs Int    @default(1)
+}
+
+model MediaStorageReservation {
+  id            String                 @id @default(uuid()) @db.Uuid
+  userId        String                 @db.Uuid
+  mediaType     MediaType
+  reservedBytes BigInt
+  status        MediaReservationStatus @default(ACTIVE)
+  expiresAt     DateTime
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  owner      User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  mediaAsset MediaAsset?
+
+  @@index([status, expiresAt])
+  @@index([userId, createdAt])
+}
+
+model MediaDeletionJob {
+  id             String              @id @default(uuid()) @db.Uuid
+  userId         String              @db.Uuid
+  status         MediaDeletionStatus @default(PENDING)
+  attempts       Int                 @default(0)
+  nextAttemptAt  DateTime
+  leaseExpiresAt DateTime?
+  lastErrorCode  String?
+  requestedAt    DateTime            @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  owner User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId])
+  @@index([status, nextAttemptAt])
+  @@index([userId, status])
+}
