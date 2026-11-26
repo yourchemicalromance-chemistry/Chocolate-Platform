@@ -1,20 +1,5 @@
-import React, { useState } from 'react';
-
-import {
-
-    ImageBackground,
-
-    Modal,
-
-    Pressable,
-
-    ScrollView,
-
-    StyleSheet,
-
-    View,
-
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { VideoVerificationFlow } from './ChocolateVideoVerificationFlow';
 
@@ -26,6 +11,9 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { LinearGradient } from 'expo-linear-gradient';
 import { LoginButton } from '../components/Button/LoginButton';
+import type { MediaUploadResult, VerificationSession, VerificationSubmission } from '../../auth-api';
+import { sendEmailOtp, verifyEmailOtp, resendEmailOtp } from '../../auth-api';
+import { runEmailOtpAction } from '../../email-otp-state';
 
 import { radii, spacing } from '../../theme';
 
@@ -36,6 +24,12 @@ type AgeVerificationScreenProps = {
     onBack: () => void;
 
     onContinueToLogin: () => void;
+    onCreateInterviewSession: () => Promise<VerificationSession>;
+    onUploadInterview: (uri: string, session: VerificationSession, onProgress: (fraction: number) => void) => Promise<MediaUploadResult>;
+    onRetakeInterview: () => Promise<VerificationSession>;
+    onGetInterviewStatus: () => Promise<VerificationSubmission[]>;
+    registeredEmail: string;
+    emailInitiallyVerified: boolean;
 
 };
 
@@ -50,6 +44,12 @@ export function ChocolateAgeVerificationScreen({
     onBack,
 
     onContinueToLogin,
+    onCreateInterviewSession,
+    onUploadInterview,
+    onRetakeInterview,
+    onGetInterviewStatus,
+    registeredEmail,
+    emailInitiallyVerified,
 
 }: AgeVerificationScreenProps) {
 
@@ -62,6 +62,10 @@ export function ChocolateAgeVerificationScreen({
     const [isEmailOtpStep, setIsEmailOtpStep] = useState(false);
 
     const [emailOtp, setEmailOtp] = useState('');
+    const [emailVerified, setEmailVerified] = useState(emailInitiallyVerified);
+    const [emailOtpLoading, setEmailOtpLoading] = useState(false);
+    const [emailOtpError, setEmailOtpError] = useState('');
+    const [resendCountdown, setResendCountdown] = useState(0);
 
     const [phoneNumber, setPhoneNumber] = useState('');
 
@@ -69,9 +73,7 @@ export function ChocolateAgeVerificationScreen({
 
     const [otp, setOtp] = useState('');
 
-    const [email, setEmail] = useState('');
 
-    const [isEmailModal, setIsEmailModal] = useState(false);
 
     const [isEmailModalVisible, setIsEmailModalVisible] = useState(false);
 
@@ -82,6 +84,56 @@ export function ChocolateAgeVerificationScreen({
     const [isVideoVerificationFlowVisible, setIsVideoVerificationFlowVisible] =
 
         useState(false);
+    const [interviewSession, setInterviewSession] = useState<VerificationSession | null>(null);
+    const [videoSubmissions, setVideoSubmissions] = useState<VerificationSubmission[]>([]);
+
+    useEffect(() => {
+        void onGetInterviewStatus().then((items) => {
+            setVideoSubmissions(items);
+            setIsVideoVerificationCompleted(items.length > 0 && items[0].status !== 'FAILED');
+        }).catch(() => undefined);
+    }, [onGetInterviewStatus]);
+
+    useEffect(() => {
+        if (resendCountdown <= 0) return;
+        const timer = setTimeout(() => setResendCountdown((seconds) => seconds - 1), 1000);
+        return () => clearTimeout(timer);
+    }, [resendCountdown]);
+
+    const requestEmailOtp = async (resend = false) => {
+        try {
+            const result = await runEmailOtpAction(
+                () => resend ? resendEmailOtp() : sendEmailOtp(),
+                setEmailOtpLoading,
+                setEmailOtpError,
+            );
+            if (result.status === 'already_verified') {
+                setEmailVerified(true);
+                setIsEmailModalVisible(false);
+                return;
+            }
+            setEmailOtp('');
+            setIsEmailOtpStep(true);
+            setResendCountdown(result.resendAfterSeconds);
+        } catch (error) {
+            if (!(error instanceof Error)) setEmailOtpError('Unable to send a code. Please try again.');
+        }
+    };
+
+    const submitEmailOtp = async () => {
+        try {
+            await runEmailOtpAction(
+                () => verifyEmailOtp(emailOtp.trim()),
+                setEmailOtpLoading,
+                setEmailOtpError,
+            );
+            setEmailVerified(true);
+            setIsEmailModalVisible(false);
+            Alert.alert('Email verified', 'Continue with your interview to finish onboarding.');
+        } catch (error) {
+            if (!(error instanceof Error)) setEmailOtpError('The code could not be verified.');
+        }
+    };
 
     const verificationMethods = [
 
@@ -180,7 +232,7 @@ export function ChocolateAgeVerificationScreen({
 
                             <Text style={styles.headingText}>
 
-                                Let's Make It <Text style={styles.ageText}>Real</Text>
+                                Let&apos;s Make It <Text style={styles.ageText}>Real</Text>
 
                             </Text>
 
@@ -315,11 +367,13 @@ export function ChocolateAgeVerificationScreen({
                                             <Pressable
 
                                                 onPress={() => {
-
                                                     setSelectedMethod(method.id);
-
-                                                    setIsVideoVerificationFlowVisible(true);
-
+                                                    void onCreateInterviewSession().then((session) => {
+                                                        setInterviewSession(session);
+                                                        setIsVideoVerificationFlowVisible(true);
+                                                    }).catch((error: unknown) => {
+                                                        Alert.alert('Unable to start verification', error instanceof Error ? error.message : 'Please try again.');
+                                                    });
                                                 }}
 
                                                 hitSlop={10}
@@ -344,11 +398,19 @@ export function ChocolateAgeVerificationScreen({
 
                         {/* Continue */}
 
+                        {videoSubmissions[0] && <View style={{ padding: 14, borderRadius: 12, backgroundColor: 'rgba(59,33,27,0.72)', marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
+                            <Text style={{ color: '#F8DCC6', fontWeight: '700' }}>
+                                {videoSubmissions[0].status === 'PENDING' || videoSubmissions[0].status === 'MANUAL_REVIEW' ? 'Video verification pending review' : videoSubmissions[0].status === 'VERIFIED' ? 'Video verification approved' : 'Video verification rejected'}
+                            </Text>
+                            {videoSubmissions[0].status === 'FAILED' && <Text style={{ color: '#F4D1BB', marginTop: 6 }}>Please start a new verification session and record a new video to try again.</Text>}
+                            {(videoSubmissions[0].status === 'PENDING' || videoSubmissions[0].status === 'MANUAL_REVIEW') && <Text style={{ color: '#F4D1BB', marginTop: 6 }}>Your video is being reviewed by a person.</Text>}
+                        </View>}
+
                         <View style={styles.continueButton}>
                             <LoginButton
                                 title="Verify & Continue"
                                 onPress={handleContinue}
-                                disabled={!isVideoVerificationCompleted}
+                                disabled={!isVideoVerificationCompleted || !emailVerified}
                             />
                         </View>
 
@@ -372,21 +434,28 @@ export function ChocolateAgeVerificationScreen({
 
                 {/* Existing video verification component — unchanged */}
 
-                <VideoVerificationFlow
+                {interviewSession && isVideoVerificationFlowVisible && <VideoVerificationFlow
+                    key={interviewSession.id}
+                    challengeInstructions={interviewSession?.challengeInstructions.actions ?? []}
 
-                    visible={isVideoVerificationFlowVisible}
-
-                    onComplete={(videoUri) => {
-
-                        setIsVideoVerificationCompleted(true);
-
-                        setIsVideoVerificationFlowVisible(false);
-
+                    onRetake={async () => setInterviewSession(await onRetakeInterview())}
+                    onComplete={async (videoUri, progress) => {
+                        if (!interviewSession) {
+                            Alert.alert('Verification session expired', 'Please start the interview again.');
+                            return;
+                        }
+                        const upload = await onUploadInterview(videoUri, interviewSession, progress);
+                        setIsVideoVerificationCompleted(upload.processingStatus === 'READY');
+                        if (upload.verificationStatus) setVideoSubmissions([{ id: upload.assetId, status: upload.verificationStatus, createdAt: new Date().toISOString(), reviewedAt: null }]);
+                        try {
+                            const submissions = await onGetInterviewStatus();
+                            setVideoSubmissions(submissions);
+                        } catch { /* The successful upload response still confirms backend receipt. */ }
                     }}
 
                     onClose={() => setIsVideoVerificationFlowVisible(false)}
 
-                />
+                />}
 
                 {/* Phone verification modal */}
 
@@ -412,7 +481,7 @@ export function ChocolateAgeVerificationScreen({
 
                                 <Text style={styles.modalTitleAccent}>
 
-                                    {isEmailModal ? 'Email' : 'Phone'}
+                                    Phone
 
                                 </Text>
 
@@ -682,27 +751,13 @@ export function ChocolateAgeVerificationScreen({
 
                                     <Text style={styles.modalSubtitle}>
 
-                                        Enter your email address.
+                                        A verification code will be sent to your registered email.
 
                                     </Text>
 
                                     <View style={styles.otpInputField}>
 
-                                        <Input
-
-                                            placeholder="Email address"
-
-                                            value={email}
-
-                                            onChangeText={setEmail}
-
-                                            keyboardType="email-address"
-
-                                            autoCapitalize="none"
-
-                                            autoCorrect={false}
-
-                                        />
+                                        <Text style={styles.modalSubtitle}>{registeredEmail}</Text>
 
                                     </View>
 
@@ -710,21 +765,9 @@ export function ChocolateAgeVerificationScreen({
 
                                         <Pressable
 
-                                            disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())}
-
-                                            onPress={() => {
-
-                                                setEmailOtp('');
-
-                                                setIsEmailOtpStep(true);
-
-                                            }}
-
-                                            style={{
-
-                                                opacity: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? 1 : 0.48
-
-                                            }}
+                                            disabled={emailOtpLoading}
+                                            onPress={() => { void requestEmailOtp(); }}
+                                            style={{ opacity: emailOtpLoading ? 0.48 : 1 }}
 
                                         >
 
@@ -740,7 +783,7 @@ export function ChocolateAgeVerificationScreen({
 
                                             >
 
-                                                <Text style={styles.modalActionText}>Send Email OTP</Text>
+                                                <Text style={styles.modalActionText}>{emailOtpLoading ? 'Sending…' : 'Send Email OTP'}</Text>
 
                                                 <Ionicons name="arrow-forward" size={19} color="#542719" />
 
@@ -788,15 +831,9 @@ export function ChocolateAgeVerificationScreen({
 
                                         <Pressable
 
-                                            disabled={!/^\d{6}$/.test(emailOtp.trim())}
-
-                                            onPress={() => {
-
-                                                // Real email OTP verification will be connected later.
-
-                                            }}
-
-                                            style={{ opacity: /^\d{6}$/.test(emailOtp.trim()) ? 1 : 0.48 }}
+                                            disabled={!/^\d{6}$/.test(emailOtp.trim()) || emailOtpLoading}
+                                            onPress={() => { void submitEmailOtp(); }}
+                                            style={{ opacity: /^\d{6}$/.test(emailOtp.trim()) && !emailOtpLoading ? 1 : 0.48 }}
 
                                         >
 
@@ -812,7 +849,7 @@ export function ChocolateAgeVerificationScreen({
 
                                             >
 
-                                                <Text style={styles.modalActionText}>Verify Email OTP</Text>
+                                                <Text style={styles.modalActionText}>{emailOtpLoading ? 'Verifying…' : 'Verify Email OTP'}</Text>
 
                                                 <Ionicons name="arrow-forward" size={19} color="#542719" />
 
@@ -848,7 +885,8 @@ export function ChocolateAgeVerificationScreen({
 
                                         <Pressable
 
-                                            onPress={() => { }}
+                                            disabled={resendCountdown > 0 || emailOtpLoading}
+                                            onPress={() => { void requestEmailOtp(true); }}
 
                                             style={styles.otpAction}
 
@@ -856,7 +894,7 @@ export function ChocolateAgeVerificationScreen({
 
                                             <Text style={styles.otpBackButtonText}>
 
-                                                Resend Otp
+                                                {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend OTP'}
 
                                             </Text>
 
@@ -868,6 +906,8 @@ export function ChocolateAgeVerificationScreen({
 
                             )}
 
+                            {!!emailOtpError && <Text style={styles.modalSubtitle}>{emailOtpError}</Text>}
+                            {emailVerified && <Text style={styles.modalSubtitle}>Your email is verified.</Text>}
                             <Pressable
 
                                 onPress={() => setIsEmailModalVisible(false)}

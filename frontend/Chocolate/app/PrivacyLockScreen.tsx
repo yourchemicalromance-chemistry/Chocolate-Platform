@@ -11,9 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Contacts from 'expo-contacts';
+import * as Location from 'expo-location';
 
 
-import { colors, spacing } from '../../theme';
+import { spacing } from '../../theme';
 import { Text } from '../../components/Text/Text';
 
 export type PrivacyLockSettings = {
@@ -28,6 +30,7 @@ type PrivacyLockScreenProps = {
     onBack: () => void;
     settings: PrivacyLockSettings;
     onSettingsChange: (nextSettings: PrivacyLockSettings) => void;
+    onSaveSettings?: (settings: PrivacyLockSettings, extra?: { contacts?: string[]; excludedLatitude?: number; excludedLongitude?: number }) => Promise<void>;
 };
 
 type PrivacyToggleProps = {
@@ -65,7 +68,9 @@ export function PrivacyLockScreen({
     onBack,
     settings,
     onSettingsChange,
+    onSaveSettings,
 }: PrivacyLockScreenProps) {
+    const [saving, setSaving] = React.useState(false);
     const updateSetting = <K extends keyof PrivacyLockSettings>(
         key: K,
         value: PrivacyLockSettings[K],
@@ -73,11 +78,41 @@ export function PrivacyLockScreen({
         onSettingsChange({ ...settings, [key]: value });
     };
 
-    const handleSave = () => {
-        Alert.alert(
-            'Privacy Lock preview',
-            'Your choices are shown in this frontend prototype. Backend enforcement and contact matching are not connected yet.',
-        );
+    const handleSave = async () => {
+        if (!onSaveSettings || saving) return;
+        setSaving(true);
+        try {
+            const extra: { contacts?: string[]; excludedLatitude?: number; excludedLongitude?: number } = {};
+            if (settings.contactLockEnabled) {
+                const permission = await Contacts.requestPermissionsAsync();
+                if (permission.status !== 'granted') throw new Error('Contact permission is required to enable Contact Lock.');
+                const values: string[] = [];
+                let pageOffset = 0;
+                let hasNextPage = true;
+                while (hasNextPage) {
+                    const page = await Contacts.getContactsAsync({ fields: [Contacts.Fields.Emails, Contacts.Fields.PhoneNumbers], pageSize: 500, pageOffset });
+                    values.push(...page.data.flatMap(contact => [
+                        ...(contact.emails ?? []).map(item => item.email),
+                        ...(contact.phoneNumbers ?? []).map(item => item.number && `phone[IN]:${item.number}`),
+                    ]).filter((value): value is string => Boolean(value)));
+                    pageOffset += page.data.length;
+                    hasNextPage = page.hasNextPage;
+                    if (page.data.length === 0) break;
+                }
+                extra.contacts = [...new Set(values)];
+            }
+            if (settings.areaExclusionEnabled) {
+                if (!settings.excludedArea.trim()) throw new Error('Enter a city or area to exclude.');
+                const locations = await Location.geocodeAsync(settings.excludedArea.trim());
+                if (!locations.length) throw new Error('That area could not be found. Please enter a city or region.');
+                extra.excludedLatitude = locations[0].latitude;
+                extra.excludedLongitude = locations[0].longitude;
+            }
+            await onSaveSettings(settings, extra);
+            Alert.alert('Privacy choices saved', 'Your discovery privacy settings are now active.');
+        } catch (error) {
+            Alert.alert('Unable to save privacy choices', error instanceof Error ? error.message : 'Please try again.');
+        } finally { setSaving(false); }
     };
 
     return (
@@ -173,8 +208,8 @@ export function PrivacyLockScreen({
                         />
                     </View>
 
-                    <Pressable onPress={handleSave} style={styles.saveButton}>
-                        <Text style={styles.saveButtonText}>Save privacy choices</Text>
+                    <Pressable onPress={() => { void handleSave(); }} style={styles.saveButton}>
+                        <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save privacy choices'}</Text>
                         <Ionicons name="arrow-forward" size={16} color="#FFF0DF" />
                     </Pressable>
                     <Text style={styles.footer}>

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+    Alert,
     ImageBackground,
     Pressable,
     ScrollView,
@@ -10,11 +11,21 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Text } from '../../components/Text/Text';
 import { LinearGradient } from 'expo-linear-gradient';
+import { getDiscoveryModes, type DiscoveryMode } from '../../auth-api';
+import { selectDiscoveryMode } from '../../discovery-mode';
 
-const DISCOVERY_MODES = [
+const DISCOVERY_MODES: {
+    id: DiscoveryMode;
+    title: string;
+    description: string;
+    icon: React.ComponentProps<typeof Ionicons>['name'];
+    color: string;
+    tags: string[];
+    image: number;
+}[] = [
     {
         id: 'algorithmic',
-        title: 'Algorithmic Match',
+        title: 'Algorithmic Recommendations',
         description:
             'Let us suggest people based on your interests, preferences and behaviour.',
         icon: 'flame',
@@ -26,7 +37,7 @@ const DISCOVERY_MODES = [
     },
     {
         id: 'browse',
-        title: 'Browse Freely',
+        title: 'Self Search / Browse',
         description:
             'Explore profiles on your own without algorithmic suggestions.',
         icon: 'people',
@@ -37,7 +48,7 @@ const DISCOVERY_MODES = [
     },
     {
         id: 'kismat',
-        title: 'Kismat Connect',
+        title: 'KISMAT',
         description:
             'A unique discovery experience built around unexpected connections.',
         icon: 'sparkles',
@@ -45,38 +56,46 @@ const DISCOVERY_MODES = [
         tags: ['Surprise Matches', 'Fate Inspired'],
         image: require('../../assets/branding/kismat-connect-chocolate.png'),
     },
-    {
-        id: 'nearby',
-        title: 'Nearby Discovery',
-        description:
-            'Find people within a chosen distance, based on your location and their privacy settings.',
-        icon: 'location',
-        color: '#B98B68',
-        tags: ['People Near You', 'Local Vibes'],
-        image: require('../../assets/branding/nearby-discovery-chocolate.png'),
-
-    },
-] as const;
-
-export type DiscoveryMode = (typeof DISCOVERY_MODES)[number]['id'];
+];
 
 type DiscoveryModeScreenProps = {
-    onContinue: (selectedModes: DiscoveryMode[]) => void;
+    onContinue: (selectedMode: DiscoveryMode) => Promise<void> | void;
 };
 
 export function DiscoveryModeScreen({
     onContinue,
 }: DiscoveryModeScreenProps) {
-    const [selectedModes, setSelectedModes] = useState<DiscoveryMode[]>([
-        'algorithmic',
-    ]);
+    const [selectedMode, setSelectedMode] = useState<DiscoveryMode | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
 
-    const toggleMode = (mode: DiscoveryMode) => {
-        setSelectedModes((current) =>
-            current.includes(mode)
-                ? current.filter((item) => item !== mode)
-                : [...current, mode],
-        );
+    useEffect(() => {
+        let active = true;
+        getDiscoveryModes()
+            .then(({ mode }) => {
+                if (active) setSelectedMode(mode);
+            })
+            .catch((error: unknown) => {
+                if (active) Alert.alert('Unable to load discovery modes', error instanceof Error ? error.message : 'Please try again.');
+            })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, []);
+
+    const continueWithSave = async () => {
+        if (loading || saving || !selectedMode) return;
+        setSaving(true);
+        try {
+            await onContinue(selectedMode);
+        } catch (error) {
+            Alert.alert('Unable to save discovery modes', error instanceof Error ? error.message : 'Please try again.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const chooseMode = (mode: DiscoveryMode) => {
+        setSelectedMode(current => selectDiscoveryMode(current, mode));
     };
 
     return (
@@ -104,21 +123,22 @@ export function DiscoveryModeScreen({
                         </Text>
 
                         <Text variant="body" style={styles.description}>
-                            Select one or more discovery modes, you can change these
+                            Select one discovery mode. You can change it
                             anytime in settings.
                         </Text>
                     </View>
 
                     <View style={styles.cards}>
                         {DISCOVERY_MODES.map((mode) => {
-                            const selected = selectedModes.includes(mode.id);
+                            const selected = selectedMode === mode.id;
 
                             return (
                                 <Pressable
                                     key={mode.id}
-                                    onPress={() => toggleMode(mode.id)}
-                                    accessibilityRole="checkbox"
-                                    accessibilityState={{ checked: selected }}
+                                    onPress={() => chooseMode(mode.id)}
+                                    disabled={loading || saving}
+                                    accessibilityRole="radio"
+                                    accessibilityState={{ selected }}
                                     accessibilityLabel={`${mode.title}. ${mode.description}`}
                                     style={[
                                         styles.card,
@@ -213,14 +233,14 @@ export function DiscoveryModeScreen({
                     <View style={styles.footer}>
                         <Pressable
                             accessibilityRole="button"
-                            accessibilityState={{ disabled: selectedModes.length === 0 }}
-                            disabled={selectedModes.length === 0}
-                            onPress={() => onContinue([...selectedModes])}
+                            accessibilityState={{ disabled: loading || saving || !selectedMode }}
+                            disabled={loading || saving || !selectedMode}
+                            onPress={continueWithSave}
                             style={styles.continueButton}
                         >
                             <LinearGradient
                                 colors={
-                                    selectedModes.length > 0
+                                    selectedMode
                                         ? ['#D9A879', '#B97843', '#8C4D2C']
                                         : ['#49372B', '#38271E', '#2A1B14']
                                 }
@@ -229,9 +249,7 @@ export function DiscoveryModeScreen({
                                 style={styles.continueButtonGradient}
                             >
                                 <Text style={styles.continueButtonText}>
-                                    {selectedModes.length > 0
-                                        ? `Continue · ${selectedModes.length} selected`
-                                        : 'Choose at least one mode'}
+                                    {selectedMode ? 'Continue' : 'Choose a discovery mode'}
                                 </Text>
                             </LinearGradient>
                         </Pressable>

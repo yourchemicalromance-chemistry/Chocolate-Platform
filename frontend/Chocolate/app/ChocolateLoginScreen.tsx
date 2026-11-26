@@ -19,12 +19,18 @@ type LoginScreenProps = {
     onBack: () => void;
     onCreateAccount: () => void;
     onLogin: (usernameOrEmail: string, password: string) => void;
+    onGoogleSignIn?: () => void;
+    googleSignInUnavailable?: boolean;
+    onForgotPassword?: () => void;
 };
 
 export function ChocolateLoginScreen({
     onBack,
     onLogin,
     onCreateAccount,
+    onGoogleSignIn,
+    googleSignInUnavailable = false,
+    onForgotPassword,
 }: LoginScreenProps) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -100,7 +106,7 @@ export function ChocolateLoginScreen({
                                     </View>
                                     <RNText style={styles.optionText}>Keep me logged in</RNText>
                                 </View>
-                                <Pressable hitSlop={8}>
+                                <Pressable hitSlop={8} onPress={onForgotPassword}>
                                     <RNText style={styles.forgotText}>Forgot Password?</RNText>
                                 </Pressable>
                             </View>
@@ -122,9 +128,9 @@ export function ChocolateLoginScreen({
                             </View>
 
                             <View style={styles.socialRow}>
-                                <View style={styles.socialButton}>
+                                {onGoogleSignIn ? <Pressable accessibilityRole="button" accessibilityLabel="Continue with Google" style={styles.socialButton} onPress={onGoogleSignIn}>
                                     <Ionicons name="logo-google" size={27} color="#4285F4" />
-                                </View>
+                                </Pressable> : null}
                                 <View style={styles.socialButton}>
                                     <Ionicons name="logo-apple" size={27} color="#FFF0DF" />
                                 </View>
@@ -132,6 +138,7 @@ export function ChocolateLoginScreen({
                                     <Ionicons name="call" size={25} color="#F8DCC6" />
                                 </View>
                             </View>
+                            {googleSignInUnavailable && <Text variant="caption" color="#F8DCC6" style={styles.googleUnavailable}>Google sign-in is unavailable. Use email and password or configure Google sign-in for this platform.</Text>}
 
                             <Text variant="caption" color="#FFF0DF" style={styles.termsText}>
                                 By continuing, you agree to our{' '}
@@ -253,6 +260,7 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(248,220,198,0.24)',
         backgroundColor: 'rgba(35,19,13,0.92)',
     },
+    googleUnavailable: { textAlign: 'center', marginTop: 10 },
 
     termsText: {
         marginTop: 26,

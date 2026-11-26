@@ -1,8 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
+import { discoverNearbyProfiles, getNearbyPreference, type DiscoveryProfile } from '../../auth-api';
 import {
   Alert,
   Pressable,
@@ -15,15 +16,23 @@ import {
 
 type NearbyScreenProps = {
   onBack: () => void;
+  onResults?: (profiles: DiscoveryProfile[]) => void;
 };
 
 const RADIUS_OPTIONS = ['5 km', '10 km', '25 km', '50 km', '100 km'];
 
-export function NearbyScreen({ onBack }: NearbyScreenProps) {
+export function NearbyScreen({ onBack, onResults }: NearbyScreenProps) {
   const [selectedRadius, setSelectedRadius] = useState('25 km');
   const [userCoordinates, setUserCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<'off' | 'on'>('off');
   const [isLocating, setIsLocating] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void getNearbyPreference().then(saved => {
+      if (active && saved && RADIUS_OPTIONS.includes(`${saved.radiusKm} km`)) setSelectedRadius(`${saved.radiusKm} km`);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   const mapRegion = userCoordinates
     ? { ...userCoordinates, latitudeDelta: Number.parseInt(selectedRadius, 10) * 0.02, longitudeDelta: Number.parseInt(selectedRadius, 10) * 0.02 }
@@ -46,6 +55,10 @@ export function NearbyScreen({ onBack }: NearbyScreenProps) {
         latitude: current.coords.latitude,
         longitude: current.coords.longitude,
       };
+      const place = await Location.reverseGeocodeAsync(coordinates).catch(() => []);
+      const areaLabel = place[0] ? [place[0].district, place[0].city, place[0].region].filter(Boolean).join(', ') : undefined;
+      const profiles = await discoverNearbyProfiles({ ...coordinates, areaLabel, radiusKm: Number.parseInt(selectedRadius, 10) });
+      onResults?.(profiles);
       setUserCoordinates(coordinates);
       setLocationStatus('on');
       Alert.alert('Nearby Discovery enabled', `Your map is centered on your current location with a ${selectedRadius} search radius.`);
@@ -186,7 +199,7 @@ export function NearbyScreen({ onBack }: NearbyScreenProps) {
               return (
                 <Pressable
                   key={radius}
-                  onPress={() => setSelectedRadius(radius)}
+                  onPress={() => { setSelectedRadius(radius); if (userCoordinates) setLocationStatus('off'); }}
                   style={[
                     styles.radiusOption,
                     isSelected && styles.radiusOptionSelected,

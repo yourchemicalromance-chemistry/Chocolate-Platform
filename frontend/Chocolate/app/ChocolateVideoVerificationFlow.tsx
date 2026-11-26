@@ -14,20 +14,35 @@ import { colors, radii, spacing } from '../../theme';
 //import { ChocolateLogo } from '../components/ChocolateLogo/ChocolateLogo';
 // import { ChocolateLogo } from '../components/ChocolateLogo/ChocolateLogoChampagne';
 import { RecordingButton } from '../../components/ChocolateRecordingButton';
+import { VideoView, useVideoPlayer } from 'expo-video';
 
 // Video Verification Assets
 const verificationBackground = require('../assets/background/Video-Verfication-bg.png');
 const verificationShield = require('../assets/branding/Glossy-Chocolate-Shield.png');
 
+function logVideoFlow(stage: string, details: Record<string, unknown> = {}) {
+    if (typeof __DEV__ === 'undefined' || !__DEV__) return;
+    try { console.info('[video-recording-debug]', JSON.stringify({ stage, ...details })); } catch { /* debug logging must not affect recording */ }
+}
+
 
 type VideoVerificationFlowProps = {
-    visible: boolean;
-    onComplete: (videoUri: string) => void;
+    challengeInstructions: string[];
+    onComplete: (videoUri: string, onProgress: (fraction: number) => void) => Promise<void>;
+    onRetake: () => Promise<void>;
     onClose: () => void;
 };
 
-export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVerificationFlowProps) {
-    const [isSelfieIntroVisible, setIsSelfieIntroVisible] = useState(visible);
+function LocalVideoPreview({ uri }: { uri: string }) {
+    const player = useVideoPlayer(uri, (videoPlayer) => {
+        videoPlayer.loop = true;
+        videoPlayer.play();
+    });
+    return <VideoView player={player} style={{ width: '100%', height: 230, borderRadius: 14, overflow: 'hidden' }} nativeControls />;
+}
+
+export function VideoVerificationFlow({ challengeInstructions, onComplete, onRetake, onClose }: VideoVerificationFlowProps) {
+    const [isSelfieIntroVisible, setIsSelfieIntroVisible] = useState(true);
 
 
     // >>> CV02-STATE: CAMERA PERMISSION — START
@@ -51,6 +66,9 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
     const [isVideoVerificationCompleted, setIsVideoVerificationCompleted] =
         useState(false);
     const [recordingStatus, setRecordingStatus] = useState('Not recording yet');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [submissionError, setSubmissionError] = useState('');
 
     const startRecording = async () => {
         if (!cameraRef.current) {
@@ -72,7 +90,12 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
             setRecordingStatus('Recording…');
             setIsRecording(true);
 
+            logVideoFlow('recordAsync-start', { maxDurationSeconds: 60 });
             const result = await cameraRef.current.recordAsync({ maxDuration: 60 });
+            logVideoFlow('recordAsync-result', {
+                hasUri: Boolean(result?.uri),
+                uriScheme: result?.uri?.split(':', 1)[0] ?? null,
+            });
             if (result?.uri) {
                 setRecordedVideoUri(result.uri);
                 setIsVideoVerificationCompleted(true);
@@ -86,6 +109,11 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
 
         } catch (error) {
             console.error('[CV04] Recording failed:', error);
+            logVideoFlow('recordAsync-error', {
+                name: error instanceof Error ? error.name : null,
+                message: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : null,
+            });
 
             const errorMessage =
                 error instanceof Error ? error.message : String(error);
@@ -116,7 +144,7 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
     const [challengeOutroText, setChallengeOutroText] = useState('');
     const [cursorVisible, setCursorVisible] = useState(true);
     const [showNextInstruction, setShowNextInstruction] = useState(false);
-    const [challengeSentence, setChallengeSentence] = useState('');
+    const challengeSentence = challengeInstructions.join(' ');
     const [isRecordingCompleteModalVisible, setIsRecordingCompleteModalVisible] =
         useState(false);
     // <<< CV04-STATE: VERIFICATION INSTRUCTIONS — END
@@ -133,7 +161,6 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
         useState(false);
     // <<< CV07-STATE: SUBMISSION RESULT — END
 
-
     const handleVerificationBack = () => {
         if (isSubmissionResultVisible) {
             setIsSubmissionResultVisible(false);
@@ -142,6 +169,8 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
         }
         if (isRecordingPreviewVisible) {
             setIsRecordingPreviewVisible(false);
+            setIntroText('');
+            setShowNextInstruction(false);
             setIsAiAssistantVisible(true);
             setAssistantQuestionIndex(2);
             return;
@@ -204,9 +233,6 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
 
     useEffect(() => {
         if (!isAiAssistantVisible) {
-            setIntroText('');
-            setShowNextInstruction(false);
-            setCursorVisible(true);
             return;
         }
 
@@ -215,9 +241,6 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
 
         let index = 0;
         let delayTimeout: ReturnType<typeof setTimeout> | undefined;
-
-        setIntroText('');
-        setShowNextInstruction(false);
 
         const typingInterval = setInterval(() => {
             index += 1;
@@ -233,7 +256,7 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
                     setShowNextInstruction(true);
 
                     let challengeIndex = 0;
-                    const challengePrefix = 'Please record your video and say ';
+                    const challengePrefix = 'Please record your video and follow these instructions: ';
                     const challengeSuffix =
                         ' into the camera, then press the Stop Recording button.';
 
@@ -294,39 +317,12 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
 
 
 
-    const challengeSentences = [
-        'The blue kite is flying above the garden.',
-        'Seven silver stars shine in the night sky.',
-        'A little bird is sitting beside the window.',
-        'Fresh flowers are growing near the old house.',
-    ];
-
-    const assignChallengeSentence = () => {
-        const randomIndex = Math.floor(
-            Math.random() * challengeSentences.length
-        );
-        setChallengeSentence(challengeSentences[randomIndex]);
-    };
-
-    useEffect(() => {
-        if (visible) setIsSelfieIntroVisible(true);
-        else {
-            setIsSelfieIntroVisible(false);
-            setIsCameraPermissionVisible(false);
-            setIsCameraReadyVisible(false);
-            setIsAiAssistantVisible(false);
-            setIsRecordingPreviewVisible(false);
-            setIsSubmissionResultVisible(false);
-            setIsRecordingCompleteModalVisible(false);
-        }
-    }, [visible]);
-
     return (
         <>
             {/* >>> CV01: CHEMISTREE LIVE INTRODUCTION — START */}
             <Modal
 
-                visible={visible && (
+                visible={(
                     isSelfieIntroVisible ||
                     isCameraPermissionVisible ||
                     isCameraReadyVisible ||
@@ -371,7 +367,7 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
                                 </Text>
 
                                 <Text variant="body" style={styles.selfieDescription}>
-                                    A quick, secure check to confirm you're a real person
+                                    A quick, secure check to confirm you&apos;re a real person
                                     and 18+.
                                 </Text>
 
@@ -640,8 +636,9 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
 
                                 <Pressable
                                     onPress={() => {
-                                        assignChallengeSentence();
                                         setIsCameraReadyVisible(false);
+                                        setIntroText('');
+                                        setShowNextInstruction(false);
                                         setIsAiAssistantVisible(true);
                                     }}
                                     style={styles.cv03ReadyButton}
@@ -653,7 +650,7 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
                                         style={styles.cv03ReadyGradient}
                                     >
                                         <Text style={styles.cv03ReadyText}>
-                                            I'm Ready
+                                            I&apos;m Ready
                                         </Text>
                                         <Ionicons
                                             name="arrow-forward"
@@ -700,7 +697,7 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
                                                     {challengeIntroText}
                                                     {challengeSentence && (
                                                         <Text style={styles.cv04ChallengeSentence}>
-                                                            "{challengeSentence}"
+                                                            “{challengeSentence}”
                                                         </Text>
                                                     )}
                                                     {challengeOutroText}
@@ -745,7 +742,7 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
             </Modal >
 
             <Modal
-                visible={visible && isRecordingCompleteModalVisible}
+                visible={isRecordingCompleteModalVisible}
                 transparent
                 animationType="fade"
                 onRequestClose={() => setIsRecordingCompleteModalVisible(false)}
@@ -761,14 +758,28 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
                         </Text>
 
                         <Text style={styles.recordingCompleteDescription}>
-                            Your video has been saved and is ready for review.
+                            Preview your recording before sending it for private human review.
                         </Text>
+                        {recordedVideoUri && <LocalVideoPreview uri={recordedVideoUri} />}
+                        {isSubmitting && <Text style={styles.recordingCompleteDescription}>Uploading: {Math.round(uploadProgress * 100)}%</Text>}
+                        {!!submissionError && <Text style={styles.recordingCompleteDescription}>{submissionError}</Text>}
 
                         <Pressable
-                            onPress={() => {
-                                setIsRecordingCompleteModalVisible(false);
-                                if (recordedVideoUri) onComplete(recordedVideoUri);
-                                onClose();
+                            disabled={!recordedVideoUri || isSubmitting}
+                            onPress={async () => {
+                                if (!recordedVideoUri || isSubmitting) return;
+                                setIsSubmitting(true);
+                                setSubmissionError('');
+                                try {
+                                    logVideoFlow('verification-screen-upload-handoff', { uriScheme: recordedVideoUri.split(':', 1)[0] ?? null });
+                                    await onComplete(recordedVideoUri, setUploadProgress);
+                                    setIsRecordingCompleteModalVisible(false);
+                                    onClose();
+                                } catch (error) {
+                                    setSubmissionError(error instanceof Error ? error.message : 'Upload failed. Please record a new video.');
+                                } finally {
+                                    setIsSubmitting(false);
+                                }
                             }}
                             style={styles.recordingCompleteButton}
                         >
@@ -779,9 +790,29 @@ export function VideoVerificationFlow({ visible, onComplete, onClose }: VideoVer
                                 style={styles.recordingCompleteButtonGradient}
                             >
                                 <Text style={styles.recordingCompleteButtonText}>
-                                    Continue
+                                    {isSubmitting ? 'Uploading…' : 'Submit for Review'}
                                 </Text>
                             </LinearGradient>
+                        </Pressable>
+                        <Pressable
+                            disabled={isSubmitting}
+                            onPress={async () => {
+                                setIsRecordingCompleteModalVisible(false);
+                                setRecordedVideoUri(null);
+                                setIsVideoVerificationCompleted(false);
+                                setUploadProgress(0);
+                                setSubmissionError('');
+                                setRecordingStatus('Record a new video using the challenge instructions.');
+                                try {
+                                    await onRetake();
+                                } catch (error) {
+                                    setSubmissionError(error instanceof Error ? error.message : 'Unable to start a new verification session.');
+                                    setIsRecordingCompleteModalVisible(true);
+                                }
+                            }}
+                            style={{ marginTop: 14, padding: 10, alignItems: 'center' }}
+                        >
+                            <Text style={styles.recordingCompleteDescription}>Retake video</Text>
                         </Pressable>
                     </View>
                 </View>

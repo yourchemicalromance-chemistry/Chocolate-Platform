@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import {
@@ -13,25 +13,40 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { getLocationSearchPreference, searchDiscoveryLocation, type DiscoveryProfile } from '../../auth-api';
 
 type LocationSearchScreenProps = {
   onBack: () => void;
+  onResults?: (profiles: DiscoveryProfile[]) => void;
 };
 
 const RADIUS_OPTIONS = ['5 km', '10 km', '25 km', '50 km', '100 km'];
 
-export function LocationSearchScreen({ onBack }: LocationSearchScreenProps) {
+export function LocationSearchScreen({ onBack, onResults }: LocationSearchScreenProps) {
   const [location, setLocation] = useState('Chennai, India');
   const [selectedRadius, setSelectedRadius] = useState('50 km');
   const [previewReady, setPreviewReady] = useState(false);
   const [mapRegion, setMapRegion] = useState({ latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.16, longitudeDelta: 0.16 });
+  useEffect(() => {
+    let active = true;
+    void getLocationSearchPreference().then(async saved => {
+      if (!active || !saved) return;
+      setLocation(saved.areaLabel);
+      if (RADIUS_OPTIONS.includes(`${saved.radiusKm} km`)) setSelectedRadius(`${saved.radiusKm} km`);
+      const points = await Location.geocodeAsync(saved.areaLabel).catch(() => []);
+      if (active && points[0]) setMapRegion({ latitude: points[0].latitude, longitude: points[0].longitude, latitudeDelta: 0.16, longitudeDelta: 0.16 });
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
+  const [isSearching, setIsSearching] = useState(false);
   const handlePreview = async () => {
     if (!location.trim()) {
       Alert.alert('Enter a location', 'Type a city or country to continue.');
       return;
     }
     try {
+      setIsSearching(true);
       const matches = await Location.geocodeAsync(location.trim());
       if (!matches.length) {
         Alert.alert('Location not found', 'Please try a more specific city, region or country name.');
@@ -44,9 +59,13 @@ export function LocationSearchScreen({ onBack }: LocationSearchScreenProps) {
         latitudeDelta: 0.16,
         longitudeDelta: 0.16,
       });
+      const results = await searchDiscoveryLocation({ latitude: match.latitude, longitude: match.longitude, locationLabel: location.trim(), radiusKm: Number.parseInt(selectedRadius, 10) });
+      onResults?.(results);
       setPreviewReady(true);
     } catch {
       Alert.alert('Could not find location', 'Please check your connection and try another location.');
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -181,7 +200,7 @@ export function LocationSearchScreen({ onBack }: LocationSearchScreenProps) {
                 pressed && styles.primaryButtonPressed,
               ]}
             >
-              <Text style={styles.primaryButtonText}>Preview search</Text>
+              <Text style={styles.primaryButtonText}>{isSearching ? 'Searching…' : 'Preview search'}</Text>
               <Ionicons name="arrow-forward" size={19} color="#FFF0DF" />
             </Pressable>
           </>

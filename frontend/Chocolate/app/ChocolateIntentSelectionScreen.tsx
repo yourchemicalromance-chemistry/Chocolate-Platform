@@ -1,17 +1,19 @@
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ImageBackground,
     Pressable,
     ScrollView,
     StyleSheet,
     View,
+    Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { ChocolateLogo } from '../components/ChocolateLogo/ChocolateLogo';
 import { Text } from '../../components/Text/Text';
+import { getDatingIntents, type DatingIntent } from '../../auth-api';
 
 const INTENTS = [
     {
@@ -51,11 +53,11 @@ const INTENTS = [
     },
 ] as const;
 
-export type DatingIntent = (typeof INTENTS)[number]['id'];
+export type { DatingIntent };
 
 type IntentSelectionScreenProps = {
     onBack: () => void;
-    onContinue: (selectedIntents: DatingIntent[]) => void;
+    onContinue: (selectedIntents: DatingIntent[]) => void | Promise<void>;
 };
 
 export function IntentSelectionScreen({
@@ -63,13 +65,51 @@ export function IntentSelectionScreen({
     onContinue,
 }: IntentSelectionScreenProps) {
     const [selectedIntents, setSelectedIntents] = useState<DatingIntent[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const savingRef = useRef(false);
+    const retryLoadRef = useRef<() => void>(() => undefined);
+
+    const loadIntents = useCallback(async () => {
+        setLoading(true);
+        try {
+            const saved = await getDatingIntents();
+            setSelectedIntents(saved.intents);
+        } catch (error) {
+            Alert.alert('Unable to load intentions', error instanceof Error ? error.message : 'Please try again.', [
+                { text: 'Retry', onPress: () => retryLoadRef.current() },
+                { text: 'Continue', style: 'cancel' },
+            ]);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+    useEffect(() => {
+        retryLoadRef.current = () => { void loadIntents(); };
+        void Promise.resolve().then(loadIntents);
+    }, [loadIntents]);
 
     const toggleIntent = (intent: DatingIntent) => {
+        if (loading || saving) return;
         setSelectedIntents((current) =>
             current.includes(intent)
                 ? current.filter((item) => item !== intent)
                 : [...current, intent],
         );
+    };
+
+    const continueToNext = async () => {
+        if (savingRef.current || loading || selectedIntents.length === 0) return;
+        savingRef.current = true;
+        setSaving(true);
+        try {
+            await onContinue([...selectedIntents]);
+        } catch (error) {
+            Alert.alert('Unable to save intentions', error instanceof Error ? error.message : 'Your selections are still here. Please try again.');
+        } finally {
+            savingRef.current = false;
+            setSaving(false);
+        }
     };
 
     return (
@@ -116,7 +156,7 @@ export function IntentSelectionScreen({
                         </Text>
 
                         <Text variant="body" style={styles.description}>
-                            Choose what you're seeking with Chemistree.
+                            Choose what you&apos;re seeking with Chemistree.
                         </Text>
                     </View>
 
@@ -183,8 +223,8 @@ export function IntentSelectionScreen({
                         <Pressable
                             accessibilityRole="button"
                             accessibilityState={{ disabled: selectedIntents.length === 0 }}
-                            disabled={selectedIntents.length === 0}
-                            onPress={() => onContinue([...selectedIntents])}
+                            disabled={selectedIntents.length === 0 || loading || saving}
+                            onPress={() => { void continueToNext(); }}
                             style={[
                                 styles.continueButton,
                                 selectedIntents.length === 0 && { opacity: 0.45 },

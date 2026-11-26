@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 
 import {
     ImageBackground,
+    Alert,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -17,21 +18,58 @@ import { Ionicons } from '@expo/vector-icons';
 import { SignUpInput } from '../components/Input/SignUpInput';
 
 import { Text } from '../../components/Text';
-import { spacing } from '../../theme';
+import type { SignupInput } from '../../auth-api';
 
 type SignUpScreenProps = {
     onBackToLanding: () => void;
-    onContinueToAgeVerification: () => void;
+    onContinueToAgeVerification: (input: SignupInput) => Promise<void>;
     onLogin: () => void;
+    onGoogleSignIn?: () => void;
+    googleSignInUnavailable?: boolean;
+    googleProfile?: { fullName: string; email: string } | null;
+    googleIdToken?: string | null;
+    onCompleteGoogleProfile?: (profile: Pick<SignupInput, 'mobileNumber' | 'dateOfBirth' | 'is18PlusDeclared'>) => Promise<void>;
 };
 
 export function ChocolateSignUpScreen({
     onBackToLanding,
     onContinueToAgeVerification,
     onLogin,
+    onGoogleSignIn,
+    googleSignInUnavailable = false,
+    googleProfile,
+    googleIdToken,
+    onCompleteGoogleProfile,
 }: SignUpScreenProps) {
 
     const [isAgeConfirmed, setIsAgeConfirmed] = useState(false);
+    const [fullName, setFullName] = useState('');
+    const [email, setEmail] = useState('');
+    const [mobileNumber, setMobileNumber] = useState('');
+    const [password, setPassword] = useState('');
+    const [day, setDay] = useState('');
+    const [month, setMonth] = useState('');
+    const [year, setYear] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const submitSignup = async () => {
+        if (!fullName.trim() || !email.trim() || !mobileNumber.trim() || (!googleIdToken && !password) || !day || !month || !year || !isAgeConfirmed) {
+            Alert.alert('Complete your details', 'Enter your account details and confirm that you are 18 or older.');
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const profile = {
+                mobileNumber,
+                dateOfBirth: `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`,
+                is18PlusDeclared: true as const,
+            };
+            if (googleIdToken) await onCompleteGoogleProfile?.(profile);
+            else await onContinueToAgeVerification({ fullName, email, password, ...profile });
+        } finally {
+            setSubmitting(false);
+        }
+    };
 
     return (
         <View style={styles.container}>
@@ -108,6 +146,8 @@ export function ChocolateSignUpScreen({
 
                                 <SignUpInput
                                     placeholder="Full Name"
+                                    value={googleProfile?.fullName ?? fullName}
+                                    onChangeText={setFullName}
                                     autoCapitalize="words"
                                     autoCorrect={false}
                                     icon={
@@ -123,6 +163,8 @@ export function ChocolateSignUpScreen({
 
                                 <SignUpInput
                                     placeholder="Email Address"
+                                    value={googleProfile?.email ?? email}
+                                    onChangeText={setEmail}
                                     keyboardType="email-address"
                                     autoCapitalize="none"
                                     autoCorrect={false}
@@ -139,6 +181,8 @@ export function ChocolateSignUpScreen({
 
                                 <SignUpInput
                                     placeholder="Mobile Number"
+                                    value={mobileNumber}
+                                    onChangeText={setMobileNumber}
                                     keyboardType="phone-pad"
                                     maxLength={15}
                                     icon={
@@ -151,9 +195,10 @@ export function ChocolateSignUpScreen({
                                 />
 
                                 {/* Password */}
-
-                                <SignUpInput
+                                {!googleIdToken && <SignUpInput
                                     placeholder="Create Password"
+                                    value={password}
+                                    onChangeText={setPassword}
                                     secureTextEntry
                                     showPasswordToggle
                                     autoCapitalize="none"
@@ -165,7 +210,7 @@ export function ChocolateSignUpScreen({
                                             color="#542719"
                                         />
                                     }
-                                />
+                                />}
 
                                 {/* Date of Birth */}
 
@@ -180,6 +225,8 @@ export function ChocolateSignUpScreen({
                                         <View style={styles.dobDay}>
                                             <SignUpInput
                                                 placeholder="Day"
+                                                value={day}
+                                                onChangeText={setDay}
                                                 keyboardType="number-pad"
                                                 maxLength={2}
                                                 compact
@@ -189,6 +236,8 @@ export function ChocolateSignUpScreen({
                                         <View style={styles.dobMonth}>
                                             <SignUpInput
                                                 placeholder="Month"
+                                                value={month}
+                                                onChangeText={setMonth}
                                                 keyboardType="number-pad"
                                                 maxLength={2}
                                                 compact
@@ -198,6 +247,8 @@ export function ChocolateSignUpScreen({
                                         <View style={styles.dobYear}>
                                             <SignUpInput
                                                 placeholder="Year"
+                                                value={year}
+                                                onChangeText={setYear}
                                                 keyboardType="number-pad"
                                                 maxLength={4}
                                                 compact
@@ -252,7 +303,8 @@ export function ChocolateSignUpScreen({
                                 <View style={styles.createAccountButton}>
 
                                     <Pressable
-                                        onPress={onContinueToAgeVerification}
+                                        onPress={() => void submitSignup()}
+                                        disabled={submitting}
                                         style={styles.createAccountButtonPressable}
                                         accessibilityRole="button"
                                     >
@@ -263,7 +315,7 @@ export function ChocolateSignUpScreen({
                                             style={styles.createAccountButtonGradient}
                                         >
                                             <RNText style={styles.createAccountButtonText}>
-                                                Create Account
+                                                {submitting ? 'Creating Account…' : googleIdToken ? 'Complete Account' : 'Create Account'}
                                             </RNText>
                                         </LinearGradient>
                                     </Pressable>
@@ -288,13 +340,9 @@ export function ChocolateSignUpScreen({
 
                                 <View style={styles.socialRow}>
 
-                                    <Pressable style={styles.socialButton}>
-                                        <Ionicons
-                                            name="logo-google"
-                                            size={27}
-                                            color="#4285F4"
-                                        />
-                                    </Pressable>
+                                    {onGoogleSignIn ? <Pressable accessibilityRole="button" accessibilityLabel="Sign up with Google" style={styles.socialButton} onPress={onGoogleSignIn}>
+                                        <Ionicons name="logo-google" size={27} color="#4285F4" />
+                                    </Pressable> : null}
 
                                     <Pressable style={styles.socialButton}>
                                         <Ionicons
@@ -313,6 +361,7 @@ export function ChocolateSignUpScreen({
                                     </Pressable>
 
                                 </View>
+                                {googleSignInUnavailable && <Text variant="caption" color="#704537" style={styles.googleUnavailable}>Google sign-in is unavailable. You can create an account with email and password.</Text>}
 
                                 {/* Terms */}
 
@@ -593,6 +642,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF1E8',
     elevation: 3,
 },
+    googleUnavailable: { textAlign: 'center', marginTop: 10 },
 
     termsText: {
     width: '100%',

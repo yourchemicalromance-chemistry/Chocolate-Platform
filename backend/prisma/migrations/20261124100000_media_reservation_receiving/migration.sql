@@ -1,0 +1,1 @@
+ALTER TYPE "MediaReservationStatus" ADD VALUE IF NOT EXISTS 'RECEIVING';

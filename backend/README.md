@@ -57,6 +57,37 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Authentication API
+
+The shared `AuthModule` exposes `POST /auth/signup` and `POST /auth/login`.
+Signup accepts `fullName`, `email`, `mobileNumber`, `password`, `dateOfBirth`
+(`YYYY-MM-DD`), and `is18PlusDeclared: true`. Passwords must be at least 8
+characters and include a letter, number, and symbol. Mobile numbers are
+canonicalized to E.164; national-format numbers are interpreted as India (+91),
+matching the current app's phone flow. Email is trimmed and lowercased.
+
+Login accepts `identifier` (email or mobile number) and `password`. Both
+endpoints return a 15-minute signed bearer access token and a public user
+summary. Password hashes are never included in responses. Configure
+`JWT_SECRET` in the runtime environment with at least 32 bytes; the application
+fails closed when it is absent or too short. Do not commit the secret.
+
+Password recovery uses `POST /auth/forgot-password` with `{ "identifier": "..." }`;
+the response is generic whether or not an account exists. If an account matches,
+the recovery code is always sent to its registered email address. Verify it with
+`POST /auth/verify-password-reset-otp` and `{ "identifier": "...", "code": "123456" }`;
+the response contains a 15-minute `resetToken`. Finish with
+`POST /auth/reset-password` and `{ "resetToken": "...", "newPassword": "...",
+"confirmPassword": "..." }`. Recovery codes are purpose-separated from email
+verification codes and use the existing per-account five-per-hour limit,
+60-second cooldown, ten-minute expiry, and five-attempt limit. Reset tokens are
+random, single-use, and stored only as hashes. Apply the additive
+`20261117100000_password_recovery` migration before using these endpoints.
+Password resets increment `User.tokenVersion`; both auth and media guards compare
+the token claim with the database value on each protected request. The additive
+`20261117110000_auth_token_revocation` migration defaults existing accounts to
+version zero so existing tokens remain valid until expiration or password reset.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
@@ -130,3 +161,20 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+### Docker backend and private media storage
+
+The application database is PostgreSQL on Aiven: Prisma declares `provider = "postgresql"`, and `PrismaService` uses `PrismaPg` with `DATABASE_URL` from `backend/.env` plus the project CA certificate. The local MySQL service has been removed from Compose; the existing `mysql_data` volume declarations are retained without a mounting service so their data is not removed. The root `docker-compose.yml` defines the NestJS backend as `chocolate-backend`, requires `JWT_SECRET` and the existing `REDIS_PASSWORD`, and binds API port 3000 to the host loopback address for host Caddy. The backend and Redis share the `chocolate_api` network for rate-limit access; Redis remains on its existing network as well.
+
+Login rate limits use atomic Redis Lua scripts shared across backend instances. The per-15-minute thresholds are 5 failures per normalized email/mobile identifier, 20 per client IP, and 5 per IP/identifier pair. Reaching a threshold starts a temporary cooldown, progressively doubling from 60 seconds for identifier/IP buckets and 30 seconds for combined buckets, capped at 15 minutes. Streak state expires after 24 hours. Successful authentication clears the identifier and combined counters; it does not clear the IP counter. Correct credentials can still authenticate during cooldown so failed attempts cannot permanently lock out an account. Redis errors fail closed with HTTP 503. Identifier and IP values are HMACed with the existing `JWT_SECRET` before entering Redis keys.
+
+Express trusts forwarded client IPs only when the immediate peer is loopback or Docker's resolved host-gateway address, matching host Caddy connecting to the backend's loopback-bound port. Keep the backend port private and let Caddy set `X-Forwarded-For`; do not expose port 3000 directly to untrusted networks.
+
+The backend image is built from `backend/Dockerfile` and includes FFmpeg/FFprobe. It runs as UID/GID 1000 and mounts `/srv/chocolate-media` read/write at the same container path. The host `photos/`, `videos/`, `quarantine/`, and `temp/` directories must be writable by that UID/GID with private directory permissions before the service is started. Media bytes are streamed only by authenticated `/media/.../content` controller routes; no static public media directory is configured. The worker remains disabled in Compose until its database/storage deployment is explicitly enabled.
+# Authentication configuration
+
+Email OTP delivery requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, and `SMTP_FROM`; authenticated SMTP also uses `SMTP_USER` and `SMTP_PASS`. `OTP_HASH_SECRET` must be a random secret of at least 32 bytes and is kept separate from `JWT_SECRET`. Password recovery uses these same existing settings; no new provider or environment variables are required.
+
+Google sign-in requires `GOOGLE_CLIENT_IDS`, a comma-separated list of the OAuth client IDs accepted by the API (Android, iOS, web/development as applicable). In Google Cloud Console, configure OAuth consent, Android OAuth credentials for the app package and signing SHA-1 fingerprints, iOS credentials for the bundle ID, and a Web OAuth client for web/development. Configure only public client IDs in Expo as `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`; never place OAuth client secrets in the app.
+
+The mobile OTP routes are API foundations only. No SMS provider is configured or contacted; `/auth/mobile/send-otp` returns HTTP 503 until a provider is deliberately configured behind `SmsOtpProvider`.

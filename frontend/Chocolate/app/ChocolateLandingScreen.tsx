@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
     Animated,
@@ -28,12 +28,16 @@ type ChocolateLandingScreenProps = {
     onCreateAccount: () => void;
     onLogin: () => void;
     isLoginTransitioning?: boolean;
+    onGoogleSignIn?: () => void;
+    googleSignInUnavailable?: boolean;
 };
 
 export function ChocolateLandingScreen({
     onCreateAccount,
     onLogin,
     isLoginTransitioning = false,
+    onGoogleSignIn,
+    googleSignInUnavailable = false,
 }: ChocolateLandingScreenProps) {
 
     const { t } = useTranslation();
@@ -58,13 +62,9 @@ export function ChocolateLandingScreen({
         setLanguageMenuVisible(false);
     };
 
-    const brandingTranslateY = useRef(
-        new Animated.Value(0)
-    ).current;
+    const [brandingTranslateY] = useState(() => new Animated.Value(0));
 
-    const landingButtonsOpacity = useRef(
-        new Animated.Value(1)
-    ).current;
+    const [landingButtonsOpacity] = useState(() => new Animated.Value(1));
 
     useEffect(() => {
         Animated.parallel([
@@ -261,9 +261,9 @@ export function ChocolateLandingScreen({
 
                     <View style={styles.socialButtons}>
 
-                        <Pressable style={styles.socialButton}>
+                        {onGoogleSignIn ? <Pressable accessibilityRole="button" accessibilityLabel="Continue with Google" style={styles.socialButton} onPress={onGoogleSignIn}>
                             <Ionicons name="logo-google" size={26} color="#4285F4" />
-                        </Pressable>
+                        </Pressable> : null}
 
                         <Pressable style={styles.socialButton}>
                             <Ionicons name="logo-apple" size={26} color="#17120F" />
@@ -274,6 +274,7 @@ export function ChocolateLandingScreen({
                         </Pressable>
 
                     </View>
+                    {googleSignInUnavailable && <RNText style={styles.googleUnavailable}>Google sign-in is unavailable. Use email and password or configure Google sign-in for this platform.</RNText>}
 
                     {/* Legal Footer 
 
@@ -417,6 +418,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         elevation: 3,
     },
+    googleUnavailable: { fontFamily: 'Montserrat_400Regular', fontSize: 11, color: '#704537', textAlign: 'center', marginTop: 10 },
 
 
     legalText: {

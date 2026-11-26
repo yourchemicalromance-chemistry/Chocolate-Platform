@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Dimensions,
@@ -19,18 +19,26 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors, radii, spacing } from '../../theme';
 import { Text } from '../../components/Text';
 import { ChocolateLogo } from '../components/ChocolateLogo/ChocolateLogo';
+import { getDiscoveryFeed, getDiscoveryStats, getDiscoveryMatches, getDiscoverySaved, getDiscoveryPhotoUrl, getVideoAccessHeaders, getDatingIntents, saveDatingIntents, getDiscoveryModes, saveDiscoveryModes, recordProfileAction, saveDiscoveryProfile, removeSavedDiscoveryProfile, type DiscoveryMode, type DiscoveryProfile } from '../../auth-api';
+import { profilesForDiscoveryMode } from '../../discovery-mode';
 
 type DashboardFilterType = 'discovery' | 'intent';
 
 type DashboardProps = {
     onLogout?: () => void;
     onOpenProfile?: () => void;
+    onOpenOtherProfile?: (profileId: string) => void;
     onOpenNearby?: () => void;
     onOpenLocationSearch?: () => void;
     onOpenPrivacyLock?: () => void;
     onOpenDashboardFilter?: (filterType: DashboardFilterType) => void;
+    onOpenVideoVerification?: () => void;
+    onOpenVideoReviews?: () => void;
+    isVideoReviewer?: boolean;
+    videoReviewPending?: boolean;
     activeDiscoveryMode?: string;
     activeSearchIntent?: string;
+    initialDiscoveryProfiles?: DiscoveryProfile[];
 };
 
 type Profile = {
@@ -50,7 +58,6 @@ type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
 // ── Chocolate palette (matches landing / login / signup) ──
 const GOLD = '#F8DCC6';
-const CARAMEL = '#B88952';
 const ESPRESSO = '#160D08';
 const COCOA = '#4B2017';
 const CHAMPAGNE = '#F8DCC6';
@@ -60,11 +67,13 @@ const PROFILE_CARD_GAP = 14;
 const CARD_SNAP_INTERVAL = PROFILE_CARD_WIDTH + PROFILE_CARD_GAP;
 
 const DISCOVERY_MODE_OPTIONS = [
-    { id: 'algorithmic', title: 'Algorithmic Match', icon: 'flame-outline' as IconName },
-    { id: 'browse', title: 'Browse Freely', icon: 'people-outline' as IconName },
-    { id: 'kismat', title: 'Kismat Connect', icon: 'sparkles-outline' as IconName },
-    { id: 'nearby', title: 'Nearby Discovery', icon: 'location-outline' as IconName },
+    { id: 'algorithmic', title: 'Algorithmic Recommendations', icon: 'flame-outline' as IconName },
+    { id: 'browse', title: 'Self Search / Browse', icon: 'people-outline' as IconName },
+    { id: 'kismat', title: 'KISMAT', icon: 'sparkles-outline' as IconName },
 ] as const;
+
+const modeTitle = (mode: DiscoveryMode) => DISCOVERY_MODE_OPTIONS.find(option => option.id === mode)!.title;
+const modeId = (title: string): DiscoveryMode | undefined => DISCOVERY_MODE_OPTIONS.find(option => option.title === title)?.id;
 
 const SEARCH_INTENT_OPTIONS = [
     { id: 'serious', title: 'Serious Relationship', icon: 'heart-outline' as IconName },
@@ -73,17 +82,6 @@ const SEARCH_INTENT_OPTIONS = [
     { id: 'exploring', title: 'Open to Exploring', icon: 'compass-outline' as IconName },
     { id: 'marriage', title: 'Marriage', icon: 'infinite-outline' as IconName },
 ] as const;
-
-const demoProfiles: Profile[] = [
-    { id: '1', name: 'Aarohi', age: 27, distance: '3 km away', profession: 'Creative Director', location: 'Delhi', interests: 'Music · Travel · Wellness', about: 'Creative soul, coffee enthusiast and passionate traveller. I enjoy meaningful conversations and discovering new places.', image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=700&auto=format&fit=crop', online: true },
-    { id: '2', name: 'Meera', age: 25, distance: '5 km away', profession: 'Architect', location: 'New Delhi', interests: 'Art · Books · Design', about: 'Usually sketching a new idea, finding a quiet café or planning my next weekend escape.', image: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=700&auto=format&fit=crop', online: true },
-    { id: '3', name: 'Ananya', age: 29, distance: '8 km away', profession: 'Brand Strategist', location: 'Gurugram', interests: 'Nature · Cinema · Food', about: 'Curious by nature. I love independent films, long walks and conversations that go beyond small talk.', image: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=700&auto=format&fit=crop' },
-    { id: '4', name: 'Ishita', age: 26, distance: '10 km away', profession: 'Fitness Coach', location: 'Noida', interests: 'Fitness · Food · Music', about: 'A morning workout, good food and live music make an almost perfect day.', image: 'https://images.unsplash.com/photo-1529139574466-a303027c1d8b?w=700&auto=format&fit=crop' },
-    { id: '5', name: 'Kiara', age: 28, distance: '4 km away', profession: 'Photographer', location: 'South Delhi', interests: 'Dance · Travel · Photography', about: 'I collect moments, not things. Always looking for a new street, story or dance floor.', image: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=700&auto=format&fit=crop', online: true },
-    { id: '6', name: 'Sana', age: 26, distance: '6 km away', profession: 'Product Designer', location: 'East Delhi', interests: 'Coffee · Music · Design', about: 'Design-minded, playlist-obsessed and happiest when discovering a new neighbourhood.', image: 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?w=700&auto=format&fit=crop' },
-    { id: '7', name: 'Riya', age: 30, distance: '9 km away', profession: 'Writer', location: 'Ghaziabad', interests: 'Books · Art · Culture', about: 'A little introverted, very curious, and always carrying a book I may or may not finish.', image: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=700&auto=format&fit=crop', online: true },
-    { id: '8', name: 'Tara', age: 27, distance: '12 km away', profession: 'Travel Consultant', location: 'Gurugram', interests: 'Nature · Films · Travel', about: 'Weekend hikes, thoughtful films and spontaneous road trips are my kind of plans.', image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=700&auto=format&fit=crop' },
-];
 
 const drawerItems = [
     { label: 'Home', icon: 'home-outline' },
@@ -94,6 +92,7 @@ const drawerItems = [
     { label: 'Appearance', icon: 'color-palette-outline' },
     { label: 'Settings', icon: 'settings-outline' },
     { label: 'Safety & Privacy', icon: 'shield-checkmark-outline' },
+    { label: 'Video Verification', icon: 'videocam-outline' },
     { label: 'Help & Support', icon: 'help-circle-outline' },
     { label: 'Log Out', icon: 'log-out-outline' },
 ] as const;
@@ -143,12 +142,18 @@ const plans = [
 export function UserDashboardScreen({
     onLogout,
     onOpenProfile,
+    onOpenOtherProfile,
     onOpenNearby,
     onOpenLocationSearch,
     onOpenPrivacyLock,
     onOpenDashboardFilter,
-    activeDiscoveryMode = 'Algorithmic Match',
+    onOpenVideoVerification,
+    onOpenVideoReviews,
+    isVideoReviewer = false,
+    videoReviewPending = false,
+    activeDiscoveryMode = 'Algorithmic Recommendations',
     activeSearchIntent = 'Serious Relationship',
+    initialDiscoveryProfiles,
 }: DashboardProps) {
     const [drawerVisible, setDrawerVisible] = useState(false);
     const [activeTab, setActiveTab] = useState('Home');
@@ -165,6 +170,76 @@ export function UserDashboardScreen({
     // New, UI-only state for the deck and the collapsed plan list
     const [deckIndex, setDeckIndex] = useState(0);
     const [plansOpen, setPlansOpen] = useState(false);
+    const [profiles, setProfiles] = useState<Profile[]>([]);
+    const [mutualMatches, setMutualMatches] = useState<Profile[]>([]);
+    const [discoveryStats, setDiscoveryStats] = useState<{ likes: number; matches: number; messages: number | null } | null>(null);
+    const [imageHeaders, setImageHeaders] = useState<Record<string, string>>({});
+    const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
+    const [profileActionBusy, setProfileActionBusy] = useState(false);
+    const carouselRef = useRef<ScrollView>(null);
+    const [carouselReady, setCarouselReady] = useState(false);
+    const actionLock = useRef(false);
+    const modeChangeLock = useRef(false);
+    const skipAutoRefresh = useRef(false);
+    const swipeActioned = useRef(new Set<string>());
+    const refreshFeed = useCallback(async (query?: string, modeTitle = selectedDiscoveryMode) => {
+        const mode = modeId(modeTitle);
+        if (!mode) throw new Error('Select a discovery mode before refreshing the feed.');
+        const rows = await getDiscoveryFeed(mode, query);
+        setProfiles(profilesForDiscoveryMode(rows, mode).map(row => ({ ...row, image: getDiscoveryPhotoUrl(row.image), distance: row.distanceBand ?? 'Distance hidden' })));
+        setDeckIndex(0);
+        setCarouselReady(false);
+    }, [selectedDiscoveryMode]);
+    useEffect(() => {
+        let active = true;
+        const convert = (row: DiscoveryProfile): Profile => ({ ...row, image: getDiscoveryPhotoUrl(row.image), distance: row.distanceBand ?? 'Distance hidden' });
+        void Promise.all([getVideoAccessHeaders(), getDiscoveryModes().catch(() => null)]).then(async ([headers, modes]) => {
+            if (!active) return;
+            setImageHeaders(headers);
+            const savedMode = modes?.mode ?? modeId(selectedDiscoveryMode) ?? 'algorithmic';
+            setSelectedDiscoveryMode(modeTitle(savedMode));
+            if (active && initialDiscoveryProfiles !== undefined) {
+                setProfiles(initialDiscoveryProfiles.map(convert));
+            } else {
+                const feed = await getDiscoveryFeed(savedMode);
+                if (active) setProfiles(profilesForDiscoveryMode(feed, savedMode).map(convert));
+            }
+        }).catch(error => { if (active) Alert.alert('Unable to load discovery', error instanceof Error ? error.message : 'Please try again.'); })
+            .finally(() => { if (active) { skipAutoRefresh.current = true; setIsLoadingProfiles(false); } });
+        void getDiscoveryStats().then(value => { if (active) setDiscoveryStats(value); }).catch(() => undefined);
+        void getDiscoveryMatches().then(value => { if (active) setMutualMatches(value.map(convert)); }).catch(() => undefined);
+        void getDiscoverySaved().then(value => { if (active) setSavedProfiles(value.map(profile => profile.id)); }).catch(() => undefined);
+        void getDatingIntents().then(value => {
+            const intent = SEARCH_INTENT_OPTIONS.find(option => option.id === value.intents[0]);
+            if (active && intent) setSelectedSearchIntent(intent.title);
+        }).catch(() => undefined);
+        return () => { active = false; };
+    // Initial feed and supporting lists load once; mode/query refreshes use the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    useEffect(() => {
+        if (isLoadingProfiles) return;
+        if (skipAutoRefresh.current) { skipAutoRefresh.current = false; return; }
+        const timer = setTimeout(() => { void refreshFeed(partnerSearchQuery.trim() || undefined).catch(() => undefined); }, 350);
+        return () => clearTimeout(timer);
+    }, [partnerSearchQuery, selectedDiscoveryMode, isLoadingProfiles, refreshFeed]);
+
+    const selectMode = async (mode: DiscoveryMode) => {
+        if (modeChangeLock.current) return;
+        modeChangeLock.current = true;
+        const title = modeTitle(mode);
+        const changed = title !== selectedDiscoveryMode;
+        if (changed) skipAutoRefresh.current = true;
+        try {
+            await saveDiscoveryModes(mode);
+            setSelectedDiscoveryMode(title);
+            setDiscoveryDropdownVisible(false);
+            await refreshFeed(partnerSearchQuery.trim() || undefined, title);
+        } catch (error) {
+            if (changed) skipAutoRefresh.current = false;
+            Alert.alert('Unable to save discovery mode', error instanceof Error ? error.message : 'Please try again.');
+        } finally { modeChangeLock.current = false; }
+    };
 
     const openFeature = (feature: string) => {
         setDrawerVisible(false);
@@ -173,6 +248,19 @@ export function UserDashboardScreen({
             setActiveTab('Home');
             return;
         }
+
+        if (feature === 'Kismat' || feature === 'KISMAT' || feature === 'Kismat Connect') {
+            void selectMode('kismat');
+            return;
+        }
+
+        if (feature === 'Matches') {
+            Alert.alert('Mutual Matches', mutualMatches.length ? mutualMatches.map(profile => `${profile.name}, ${profile.age}`).join('\n') : 'No mutual matches yet.');
+            return;
+        }
+
+        if (feature === 'Safety & Privacy') { onOpenPrivacyLock?.(); return; }
+        if (feature === 'Video Verification') { onOpenVideoVerification?.(); return; }
 
         if (feature === 'Log Out') {
             Alert.alert('Log out', 'Connect this action to authentication when available.', [
@@ -183,7 +271,9 @@ export function UserDashboardScreen({
         }
 
         if (feature === 'Profile' || feature === 'My Profile') {
+            setActiveTab('Home');
             onOpenProfile?.();
+            return;
         }
 
         Alert.alert(
@@ -193,47 +283,50 @@ export function UserDashboardScreen({
         );
     };
 
-    const toggleLike = (id: string) => {
-        setLikedProfiles((current) =>
-            current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-        );
-        setPassedProfiles((current) => current.filter((item) => item !== id));
-    };
-
-    const passProfile = (id: string) => {
-        setPassedProfiles((current) => (current.includes(id) ? current : [...current, id]));
-        setLikedProfiles((current) => current.filter((item) => item !== id));
-    };
-
-    const visibleProfiles = demoProfiles.filter((profile) => !passedProfiles.includes(profile.id));
+    const visibleProfiles = profiles.filter((profile) => !passedProfiles.includes(profile.id));
     const deckSize = visibleProfiles.length;
     const safeIndex = deckSize ? deckIndex % deckSize : 0;
     const current = deckSize ? visibleProfiles[safeIndex] : undefined;
-    const carouselRef = useRef<ScrollView>(null);
-    const [carouselReady, setCarouselReady] = useState(false);
     const carouselProfiles = deckSize > 1
         ? [visibleProfiles[deckSize - 1], ...visibleProfiles, visibleProfiles[0]]
         : visibleProfiles;
-    const upNext = deckSize > 1
-        ? [1, 2]
-            .map((offset) => visibleProfiles[(safeIndex + offset) % deckSize])
-            .filter((p, i, arr) => p.id !== current?.id && arr.findIndex((x) => x.id === p.id) === i)
-        : [];
-
-    const handleSuperLike = (profile: Profile) => {
-        setSuperLikedProfiles((current) => current.includes(profile.id) ? current : [...current, profile.id]);
-        setLikedProfiles((current) => current.includes(profile.id) ? current : [...current, profile.id]);
-        setDeckIndex(safeIndex + 1);
+    const performAction = async (profile: Profile, action: 'LIKE' | 'SUPER_LIKE' | 'PASS' | 'VIEW') => {
+        if (action === 'VIEW') {
+            onOpenOtherProfile?.(profile.id);
+            void recordProfileAction(profile.id, 'VIEW').catch(() => undefined);
+            return;
+        }
+        if (actionLock.current) return;
+        actionLock.current = true; setProfileActionBusy(true);
+        try {
+            const result = await recordProfileAction(profile.id, action);
+            if (action === 'PASS') {
+                setPassedProfiles(current => current.includes(profile.id) ? current : [...current, profile.id]);
+                if (modeId(selectedDiscoveryMode) === 'kismat') {
+                    void refreshFeed(undefined, selectedDiscoveryMode).catch(error => Alert.alert('Unable to draw another KISMAT profile', error instanceof Error ? error.message : 'Please try again.'));
+                }
+            }
+            if (action === 'LIKE' || action === 'SUPER_LIKE') {
+                setLikedProfiles(current => current.includes(profile.id) ? current : [...current, profile.id]);
+                if (action === 'SUPER_LIKE') setSuperLikedProfiles(current => current.includes(profile.id) ? current : [...current, profile.id]);
+                setDeckIndex(index => index + 1);
+                if (result.mutualMatch) { const matches = await getDiscoveryMatches(); setMutualMatches(matches.map(row => ({ ...row, image: getDiscoveryPhotoUrl(row.image), distance: row.distanceBand ?? 'Distance hidden' }))); }
+            }
+        } catch (error) { Alert.alert('Action not saved', error instanceof Error ? error.message : 'Please try again.'); }
+        finally { actionLock.current = false; setProfileActionBusy(false); }
     };
 
-    const toggleSaved = (profile: Profile) => {
-        setSavedProfiles((current) => current.includes(profile.id) ? current.filter((id) => id !== profile.id) : [...current, profile.id]);
-    };
-
-    const handleLike = (profile: Profile) => {
-        const wasLiked = likedProfiles.includes(profile.id);
-        toggleLike(profile.id);
-        if (!wasLiked) setDeckIndex(safeIndex + 1); // move on after a new like
+    const handleSuperLike = (profile: Profile) => { void performAction(profile, 'SUPER_LIKE'); };
+    const handleLike = (profile: Profile) => { void performAction(profile, 'LIKE'); };
+    const toggleSaved = async (profile: Profile) => {
+        if (actionLock.current) return;
+        actionLock.current = true;
+        try {
+            const wasSaved = savedProfiles.includes(profile.id);
+            if (wasSaved) await removeSavedDiscoveryProfile(profile.id); else await saveDiscoveryProfile(profile.id);
+            setSavedProfiles(current => wasSaved ? current.filter(id => id !== profile.id) : [...current, profile.id]);
+        } catch (error) { Alert.alert('Unable to save profile', error instanceof Error ? error.message : 'Please try again.'); }
+        finally { actionLock.current = false; }
     };
 
     useEffect(() => {
@@ -245,11 +338,7 @@ export function UserDashboardScreen({
         }
     }, [deckSize, carouselReady]);
 
-    const resetDeck = () => {
-        setPassedProfiles([]);
-        setDeckIndex(0);
-        setCarouselReady(false);
-    };
+    const resetDeck = () => { setPassedProfiles([]); void refreshFeed().catch(error => Alert.alert('Unable to refresh discovery', error instanceof Error ? error.message : 'Please try again.')); };
 
 
 
@@ -362,10 +451,10 @@ export function UserDashboardScreen({
                                             <Pressable
                                                 key={option.id}
                                                 style={[styles.intentDropdownOption, selected && styles.intentDropdownOptionSelected]}
-                                                onPress={() => {
-                                                    setSelectedSearchIntent(option.title);
-                                                    setIntentDropdownVisible(false);
-                                                }}
+                                                onPress={() => { void (async () => {
+                                                    try { await saveDatingIntents([option.id]); setSelectedSearchIntent(option.title); setIntentDropdownVisible(false); }
+                                                    catch (error) { Alert.alert('Unable to save search intent', error instanceof Error ? error.message : 'Please try again.'); }
+                                                })(); }}
                                                 accessibilityRole="button"
                                                 accessibilityState={{ selected }}
                                             >
@@ -429,10 +518,9 @@ export function UserDashboardScreen({
                                             <Pressable
                                                 key={option.id}
                                                 style={[styles.intentDropdownOption, selected && styles.intentDropdownOptionSelected]}
-                                                onPress={() => {
-                                                    setSelectedDiscoveryMode(option.title);
-                                                    setDiscoveryDropdownVisible(false);
-                                                }}
+                                                onPress={() => { void (async () => {
+                                                    await selectMode(option.id);
+                                                })(); }}
                                                 accessibilityRole="button"
                                                 accessibilityState={{ selected }}
                                             >
@@ -480,6 +568,10 @@ export function UserDashboardScreen({
                                 }
 
                                 if (nextIndex >= 0 && nextIndex < deckSize && nextIndex !== safeIndex) {
+                                    if (!likedProfiles.includes(current!.id) && !superLikedProfiles.includes(current!.id) && !swipeActioned.current.has(current!.id)) {
+                                        swipeActioned.current.add(current!.id);
+                                        void recordProfileAction(current!.id, 'PASS').catch(error => Alert.alert('Pass not saved', error instanceof Error ? error.message : 'Please try again.'));
+                                    }
                                     setDeckIndex(nextIndex);
                                 }
                             }}
@@ -489,10 +581,10 @@ export function UserDashboardScreen({
                                     <Pressable
                                         accessibilityRole="button"
                                         accessibilityLabel={`View ${profile.name}'s profile`}
-                                        onPress={() => openFeature(`Profile: ${profile.name}`)}
+                                        onPress={() => { void performAction(profile, 'VIEW'); }}
                                         style={styles.photoProfileCard}
                                     >
-                                        <Image source={{ uri: profile.image }} style={styles.photoProfileImage} />
+                                        <Image source={{ uri: profile.image, headers: imageHeaders }} style={styles.photoProfileImage} />
                                         <LinearGradient
                                             colors={['rgba(15,8,5,0.02)', 'rgba(15,8,5,0.08)', 'rgba(15,8,5,0.88)']}
                                             locations={[0, 0.48, 1]}
@@ -519,8 +611,18 @@ export function UserDashboardScreen({
                                         <View style={styles.profileActionRail}>
                                             <Pressable
                                                 accessibilityRole="button"
+                                                accessibilityLabel={`Pass on ${profile.name}`}
+                                                onPress={(event) => { event.stopPropagation(); void performAction(profile, 'PASS'); }}
+                                                disabled={profileActionBusy}
+                                                style={styles.profileActionButton}
+                                            >
+                                                <Ionicons name="close" size={23} color={CREAM} />
+                                            </Pressable>
+                                            <Pressable
+                                                accessibilityRole="button"
                                                 accessibilityLabel={`Like ${profile.name}`}
                                                 onPress={(event) => { event.stopPropagation(); handleLike(profile); }}
+                                                disabled={profileActionBusy}
                                                 style={[styles.profileActionButton, likedProfiles.includes(profile.id) && styles.profileActionButtonActive]}
                                             >
                                                 <Ionicons name={likedProfiles.includes(profile.id) ? 'heart' : 'heart-outline'} size={21} color={likedProfiles.includes(profile.id) ? '#F28B9A' : CREAM} />
@@ -529,6 +631,7 @@ export function UserDashboardScreen({
                                                 accessibilityRole="button"
                                                 accessibilityLabel={`Super like ${profile.name}`}
                                                 onPress={(event) => { event.stopPropagation(); handleSuperLike(profile); }}
+                                                disabled={profileActionBusy}
                                                 style={[styles.profileActionButton, superLikedProfiles.includes(profile.id) && styles.profileActionButtonActive]}
                                             >
                                                 <Ionicons name="star" size={20} color={superLikedProfiles.includes(profile.id) ? GOLD : CREAM} />
@@ -536,7 +639,8 @@ export function UserDashboardScreen({
                                             <Pressable
                                                 accessibilityRole="button"
                                                 accessibilityLabel={`${savedProfiles.includes(profile.id) ? 'Unsave' : 'Save'} ${profile.name}`}
-                                                onPress={(event) => { event.stopPropagation(); toggleSaved(profile); }}
+                                                onPress={(event) => { event.stopPropagation(); void toggleSaved(profile); }}
+                                                disabled={profileActionBusy}
                                                 style={[styles.profileActionButton, savedProfiles.includes(profile.id) && styles.profileActionButtonActive]}
                                             >
                                                 <Ionicons name={savedProfiles.includes(profile.id) ? 'bookmark' : 'bookmark-outline'} size={20} color={savedProfiles.includes(profile.id) ? GOLD : CREAM} />
@@ -544,7 +648,7 @@ export function UserDashboardScreen({
                                             <Pressable
                                                 accessibilityRole="button"
                                                 accessibilityLabel={`Open ${profile.name}'s profile`}
-                                                onPress={(event) => { event.stopPropagation(); Alert.alert('Profile details', 'Profile details are coming soon.'); }}
+                                                onPress={(event) => { event.stopPropagation(); void performAction(profile, 'VIEW'); }}
                                                 style={styles.profileActionButton}
                                             >
                                                 <Ionicons name="person-outline" size={20} color={CREAM} />
@@ -582,7 +686,7 @@ export function UserDashboardScreen({
                 ) : (
                     <View style={styles.emptyCard}>
                         <Ionicons name="sparkles-outline" size={30} color={GOLD} />
-                        <Text variant="heading3" color={CREAM}>You've met everyone for now</Text>
+                        <Text variant="heading3" color={CREAM}>You&apos;ve met everyone for now</Text>
                         <Text variant="bodySmall" color={colors.moonlight.silver}>
                             Bring the demo profiles back to explore them again.
                         </Text>
@@ -595,9 +699,9 @@ export function UserDashboardScreen({
                 {/* Activity */}
                 <View style={styles.statsRow}>
                     {[
-                        { n: '24', label: 'Likes', feature: 'Likes & Connections' },
-                        { n: '54', label: 'Matches', feature: 'Matches' },
-                        { n: '4', label: 'Messages', feature: 'Chats' },
+                        { n: discoveryStats ? String(discoveryStats.likes) : '—', label: 'Likes', feature: 'Likes & Connections' },
+                        { n: discoveryStats ? String(discoveryStats.matches) : '—', label: 'Matches', feature: 'Matches' },
+                        { n: discoveryStats?.messages === null || !discoveryStats ? '—' : String(discoveryStats.messages), label: 'Messages', feature: 'Chats' },
                     ].map((stat) => (
                         <Pressable
                             key={stat.label}
@@ -629,10 +733,10 @@ export function UserDashboardScreen({
                         </Pressable>
                     </View>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.matchesRow}>
-                        {demoProfiles.map((profile) => (
-                            <Pressable key={profile.id} style={styles.matchItem} onPress={() => openFeature(`Profile: ${profile.name}`)}>
+                        {mutualMatches.map((profile) => (
+                            <Pressable key={profile.id} style={styles.matchItem} onPress={() => { void performAction(profile, 'VIEW'); }}>
                                 <View style={styles.matchRing}>
-                                    <Image source={{ uri: profile.image }} style={styles.matchPhoto} />
+                                    <Image source={{ uri: profile.image, headers: imageHeaders }} style={styles.matchPhoto} />
                                     {profile.online && <View style={styles.onlineDot} />}
                                 </View>
                                 <Text variant="label" color={CREAM}>{profile.name}</Text>
@@ -692,7 +796,7 @@ export function UserDashboardScreen({
 
                     <View style={styles.chipRow}>
                         {([
-                            { title: 'Kismat Connect', icon: 'sparkles-outline' },
+                            { title: 'KISMAT', icon: 'sparkles-outline' },
                             { title: 'Saved Profiles', icon: 'bookmark-outline' },
                         ] as { title: string; icon: IconName }[]).map((chip) => (
                             <Pressable key={chip.title} onPress={() => openFeature(chip.title)} style={styles.chip}>
@@ -859,10 +963,14 @@ export function UserDashboardScreen({
 
 
                         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.drawerItems}>
-                            {drawerItems.map((item) => (
+                            {[...drawerItems, ...(isVideoReviewer ? [{ label: 'Video Reviews', icon: 'eye-outline' }] : [])].map((item) => (
                                 <Pressable
                                     key={item.label}
-                                    onPress={() => openFeature(item.label)}
+                                    onPress={() => {
+                                        if (item.label === 'Video Verification') { setDrawerVisible(false); onOpenVideoVerification?.(); return; }
+                                        if (item.label === 'Video Reviews') { setDrawerVisible(false); onOpenVideoReviews?.(); return; }
+                                        openFeature(item.label);
+                                    }}
                                     style={[
                                         styles.drawerItem,
                                         item.label === 'Home' && styles.drawerItemActive,
@@ -877,6 +985,7 @@ export function UserDashboardScreen({
                                     <Text variant="label" color={COCOA} style={styles.drawerItemText}>
                                         {item.label}
                                     </Text>
+                                    {item.label === 'Video Verification' && videoReviewPending && <Text variant="caption" color="#8A5B23">Pending review</Text>}
                                     {item.label === 'Premium' && <Ionicons name="sparkles" size={16} color={GOLD} />}
                                 </Pressable>
                             ))}

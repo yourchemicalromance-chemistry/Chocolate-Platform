@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ImageBackground,
   KeyboardAvoidingView,
@@ -36,7 +36,8 @@ export type ProfileBasics = {
 
 type ProfileBasicsScreenProps = {
   onBack: () => void;
-  onContinue: (details: ProfileBasics) => void;
+  initialDetails?: Partial<ProfileBasics>;
+  onContinue: (details: ProfileBasics) => void | Promise<void>;
 };
 
 const GENDER_OPTIONS: GenderIdentity[] = [
@@ -63,6 +64,7 @@ const BLUE = '#F5C58B';
 
 export function ProfileBasicsScreen({
   onContinue,
+  initialDetails,
 }: ProfileBasicsScreenProps) {
   const [displayName, setDisplayName] = useState('');
   const [genderIdentity, setGenderIdentity] =
@@ -71,6 +73,16 @@ export function ProfileBasicsScreen({
   const [showErrors, setShowErrors] = useState(false);
   const [genderExpanded, setGenderExpanded] = useState(false);
   const [meetExpanded, setMeetExpanded] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  useEffect(() => {
+    if (!initialDetails) return;
+    const timer = setTimeout(() => {
+      if (initialDetails.displayName !== undefined) setDisplayName(initialDetails.displayName ?? '');
+      if (initialDetails.genderIdentity !== undefined) setGenderIdentity(initialDetails.genderIdentity);
+      if (initialDetails.interestedIn) setInterestedIn(initialDetails.interestedIn);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [initialDetails]);
 
   const nameIsValid = displayName.trim().length > 0;
   const meetIsValid = interestedIn.length > 0;
@@ -98,11 +110,9 @@ export function ProfileBasicsScreen({
 
     if (!canContinue) return;
 
-    onContinue({
-      displayName: displayName.trim(),
-      genderIdentity,
-      interestedIn,
-    });
+    if (isSaving) return;
+    setIsSaving(true);
+    void Promise.resolve(onContinue({ displayName: displayName.trim(), genderIdentity, interestedIn })).finally(() => setIsSaving(false));
   };
 
   return (
@@ -363,7 +373,7 @@ export function ProfileBasicsScreen({
               <ChocolateButton
                 title="Continue"
                 variant="primary"
-                disabled={!canContinue}
+                disabled={!canContinue || isSaving}
                 onPress={handleContinue}
               />
 

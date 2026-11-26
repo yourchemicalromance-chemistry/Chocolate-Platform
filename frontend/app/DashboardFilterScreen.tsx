@@ -12,7 +12,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { colors, radii, spacing } from '../theme';
 import { Text } from '../components/Text';
-import { GradientText } from '../components/GradientText';
 import { MoonlightBackground } from '../components/MoonlightBackground';
 
 export type DashboardFilterType = 'discovery' | 'intent';
@@ -26,10 +25,9 @@ type DashboardFilterScreenProps = {
 
 const FILTER_OPTIONS: Record<DashboardFilterType, string[]> = {
     discovery: [
-        'Algorithmic Match',
-        'Browse Freely',
-        'Kismat Connect',
-        'Nearby Discovery',
+        'Algorithmic Recommendations',
+        'Self Search / Browse',
+        'KISMAT',
     ],
     intent: [
         'Serious Relationship',

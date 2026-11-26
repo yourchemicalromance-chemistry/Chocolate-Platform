@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ImageBackground,
   Pressable,
@@ -73,17 +73,30 @@ export type ProfileChemistryDetails = {
 
 type ProfileBasicsScreen3Props = {
   onBack: () => void;
-  onContinue: (details: ProfileChemistryDetails) => void;
+  initialDetails?: Partial<ProfileChemistryDetails>;
+  onContinue: (details: ProfileChemistryDetails) => void | Promise<void>;
 };
 
 export function ProfileBasicsScreen3({
   onBack,
   onContinue,
+  initialDetails,
 }: ProfileBasicsScreen3Props) {
   const [interests, setInterests] = useState<string[]>([]);
   const [lifestyles, setLifestyles] = useState<string[]>([]);
   const [values, setValues] = useState<string[]>([]);
   const [conversationStyles, setConversationStyles] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  useEffect(() => {
+    if (!initialDetails) return;
+    const timer = setTimeout(() => {
+      if (initialDetails.interests) setInterests(initialDetails.interests);
+      if (initialDetails.lifestyles) setLifestyles(initialDetails.lifestyles);
+      if (initialDetails.values) setValues(initialDetails.values);
+      if (initialDetails.conversationStyles) setConversationStyles(initialDetails.conversationStyles);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [initialDetails]);
 
   const [interestsExpanded, setInterestsExpanded] = useState(false);
   const [lifestyleExpanded, setLifestyleExpanded] = useState(false);
@@ -109,12 +122,14 @@ export function ProfileBasicsScreen3({
     conversationStyles.length > 0;
 
   const handleContinue = () => {
-    onContinue({
+    if (!canContinue || isSaving) return;
+    setIsSaving(true);
+    void Promise.resolve(onContinue({
       interests,
       lifestyles,
       values,
       conversationStyles,
-    });
+    })).finally(() => setIsSaving(false));
   };
 
   const renderOptions = (
@@ -368,7 +383,7 @@ export function ProfileBasicsScreen3({
               <ChocolateButton
                 title="Create My Profile"
                 variant="primary"
-                disabled={!canContinue}
+                disabled={!canContinue || isSaving}
                 onPress={handleContinue}
               />
             </View>

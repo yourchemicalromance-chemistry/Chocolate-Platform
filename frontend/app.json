@@ -1,47 +1,55 @@
-﻿{
-    "expo":  {
-                 "name":  "Chocolate",
-                 "slug":  "where-connection-grows",
-                 "version":  "1.0.0",
-                 "orientation":  "portrait",
-                 "icon":  "./Chocolate/assets/branding/Glossy Chocolate Heart Outline.png",
-                 "userInterfaceStyle":  "light",
-                 "ios":  {
-                             "supportsTablet":  true
-                         },
-                 "android":  {
-                                 "adaptiveIcon":  {
-                                                      "backgroundColor":  "#1B0905",
-                                                      "foregroundImage":  "./Chocolate/assets/branding/Glossy Chocolate Heart Outline.png"
-                                                  },
-                                 "predictiveBackGestureEnabled":  false,
-                                 "package":  "com.naveen2026.yourchemicalromance"
-                             },
-                 "web":  {
-                             "favicon":  "./assets/favicon.png"
-                         },
-                 "plugins":  [
-                                 "expo-font",
-                                 "expo-video",
-                                 "expo-localization",
-                                 [
-                                     "react-native-maps",
-                                     {
-                                         "androidGoogleMapsApiKey":  "YOUR_GOOGLE_MAPS_API_KEY"
-                                     }
-                                 ],
-                                 [
-                                     "expo-location",
-                                     {
-                                         "locationWhenInUsePermission":  "CHOCOLATE uses your location to show nearby discovery areas."
-                                     }
-                                 ]
-                             ],
-                 "extra":  {
-                               "eas":  {
-                                           "projectId":  "db42bda9-4bca-4b1a-aac3-488a09b0e653"
-                                       }
-                           },
-                 "owner":  "naveen_2026"
-             }
+{
+    "expo": {
+        "name": "Chocolate",
+        "slug": "where-connection-grows",
+        "scheme": "chocolate",
+        "version": "1.0.0",
+        "orientation": "portrait",
+        "icon": "./Chocolate/assets/branding/Glossy Chocolate Heart Outline.png",
+        "userInterfaceStyle": "light",
+        "ios": {
+            "supportsTablet": true
+        },
+        "android": {
+            "blockedPermissions": ["android.permission.WRITE_CONTACTS"],
+            "adaptiveIcon": {
+                "backgroundColor": "#1B0905",
+                "foregroundImage": "./Chocolate/assets/branding/Glossy Chocolate Heart Outline.png"
+            },
+            "predictiveBackGestureEnabled": false,
+            "package": "com.naveen2026.chocolate"
+        },
+        "web": {
+            "favicon": "./assets/favicon.png"
+        },
+        "plugins": [
+            "expo-font",
+            "expo-video",
+            "expo-localization",
+            [
+                "react-native-maps",
+                {
+                    "androidGoogleMapsApiKey": "YOUR_GOOGLE_MAPS_API_KEY"
+                }
+            ],
+            [
+                "expo-location",
+                {
+                    "locationWhenInUsePermission": "CHOCOLATE uses your location to show nearby discovery areas."
+                }
+            ],
+            [
+                "expo-contacts",
+                {
+                    "contactsPermission": "CHOCOLATE uses your contacts to hide your profile from people you know. Contact details are sent securely and stored as keyed hashes."
+                }
+            ]
+        ],
+        "extra": {
+            "eas": {
+                "projectId": "db42bda9-4bca-4b1a-aac3-488a09b0e653"
+            }
+        },
+        "owner": "naveen_2026"
+    }
 }

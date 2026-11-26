@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { getVideoAccessHeaders } from '../../auth-api';
 
 
 import { ChocolateButton } from '../components/Button/ChocolateButton';
@@ -52,6 +53,7 @@ const PROMPTS = [
 type ProfilePhoto = {
   id: string;
   uri: string;
+  assetId?: string;
 };
 
 export type ProfileStoryDetails = {
@@ -64,12 +66,17 @@ export type ProfileStoryDetails = {
 
 type ProfileBasicsScreen2Props = {
   onBack: () => void;
-  onContinue: (details: ProfileStoryDetails) => void;
+  initialDetails?: Partial<ProfileStoryDetails>;
+  onContinue: (
+    details: ProfileStoryDetails,
+    onPhotoPersisted?: (localPhotoId: string, photo: ProfilePhoto & { assetId: string }) => void,
+  ) => void | Promise<void>;
 };
 
 export function ProfileBasicsScreen2({
   onBack,
   onContinue,
+  initialDetails,
 }: ProfileBasicsScreen2Props) {
   const [photos, setPhotos] = useState<ProfilePhoto[]>([]);
   const [mainPhotoId, setMainPhotoId] = useState<string | null>(null);
@@ -81,6 +88,22 @@ export function ProfileBasicsScreen2({
   ]);
   const [languagesExpanded, setLanguagesExpanded] = useState(false);
   const [isPickingPhoto, setIsPickingPhoto] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [photoHeaders, setPhotoHeaders] = useState<Record<string, string>>({});
+  const restoredInitialDetails = useRef(false);
+  useEffect(() => { void getVideoAccessHeaders().then(setPhotoHeaders).catch(() => setPhotoHeaders({})); }, []);
+  useEffect(() => {
+    if (!initialDetails || restoredInitialDetails.current) return;
+    const timer = setTimeout(() => {
+      restoredInitialDetails.current = true;
+      if (initialDetails.photos) setPhotos(initialDetails.photos);
+      if (initialDetails.mainPhotoId !== undefined) setMainPhotoId(initialDetails.mainPhotoId);
+      if (initialDetails.bio !== undefined) setBio(initialDetails.bio);
+      if (initialDetails.selectedPrompt !== undefined) setSelectedPrompt(initialDetails.selectedPrompt);
+      if (initialDetails.languages) setLanguages(initialDetails.languages);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [initialDetails]);
 
   const mainPhoto = photos.find((photo) => photo.id === mainPhotoId);
 
@@ -124,15 +147,8 @@ export function ProfileBasicsScreen2({
         uri: asset.uri,
       };
 
-      setPhotos((currentPhotos) => {
-        if (currentPhotos.length >= MAX_PHOTOS) return currentPhotos;
-
-        if (currentPhotos.length === 0) {
-          setMainPhotoId(newPhoto.id);
-        }
-
-        return [...currentPhotos, newPhoto];
-      });
+      if (photos.length === 0) setMainPhotoId(newPhoto.id);
+      setPhotos((currentPhotos) => currentPhotos.length >= MAX_PHOTOS ? currentPhotos : [...currentPhotos, newPhoto]);
     } catch {
       Alert.alert(
         'Unable to select photo',
@@ -144,17 +160,9 @@ export function ProfileBasicsScreen2({
   };
 
   const handleRemovePhoto = (photoId: string) => {
-    setPhotos((currentPhotos) => {
-      const remaining = currentPhotos.filter(
-        (photo) => photo.id !== photoId,
-      );
-
-      if (mainPhotoId === photoId) {
-        setMainPhotoId(remaining[0]?.id ?? null);
-      }
-
-      return remaining;
-    });
+    const remaining = photos.filter((photo) => photo.id !== photoId);
+    if (mainPhotoId === photoId) setMainPhotoId(remaining[0]?.id ?? null);
+    setPhotos(remaining);
   };
 
   const handleSetMainPhoto = (photoId: string) => {
@@ -197,13 +205,25 @@ export function ProfileBasicsScreen2({
       return;
     }
 
-    onContinue({
+    if (photos.length === 0) {
+      Alert.alert('Add a profile photo', 'Please add at least one photo before continuing.');
+      return;
+    }
+    if (isSaving) return;
+    setIsSaving(true);
+
+    void Promise.resolve(onContinue({
       photos,
       mainPhotoId,
       bio: bio.trim(),
       selectedPrompt,
       languages,
-    });
+    }, (localPhotoId, savedPhoto) => {
+      setPhotos(current => current.map(photo => photo.id === localPhotoId ? savedPhoto : photo));
+      if (mainPhotoId === localPhotoId) setMainPhotoId(savedPhoto.id);
+    })).catch((error: unknown) => {
+      Alert.alert('Unable to save your profile story', error instanceof Error ? error.message : 'Please try again.');
+    }).finally(() => setIsSaving(false));
   };
 
   return (
@@ -326,7 +346,7 @@ export function ProfileBasicsScreen2({
                           }
                         >
                           <Image
-                            source={{ uri: photo.uri }}
+                            source={{ uri: photo.uri, headers: photoHeaders, cache: 'reload' }}
                             style={styles.photoImage}
                             resizeMode="cover"
                           />
@@ -456,7 +476,7 @@ export function ProfileBasicsScreen2({
                   Languages
                 </Text>
                 <Text variant="bodySmall" style={styles.sectionDescription}>
-                  Select the languages you're comfortable with.
+                  Select the languages you&apos;re comfortable with.
                 </Text>
               </View>
               <Ionicons
@@ -530,7 +550,7 @@ export function ProfileBasicsScreen2({
               <ChocolateButton
                 title="Continue"
                 variant="primary"
-                disabled={bio.trim().length === 0 || languages.length === 0}
+                disabled={bio.trim().length === 0 || languages.length === 0 || photos.length === 0 || isSaving}
                 onPress={handleContinue}
               />
             </View>
